@@ -1,0 +1,86 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", "Noto Sans Devanagari", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  
+  --color-primary: var(--primary);
+  --color-accent: var(--accent);
+  --color-brand-bg: var(--brand-bg);
+  --color-page: var(--bg-page);
+  --color-main: var(--text-main);
+  --color-border-theme: var(--border-color);
+}
+
+@layer base {
+  :root, [data-theme='geometric'] {
+    --primary: #2563eb; /* Clean Exam Blue */
+    --accent: #4f46e5;
+    --brand-bg: #f8fafc;
+    --bg-page: #f8fafc; /* Crisp paper background */
+    --text-main: #1e293b; /* Crisp dark charcoal for reading */
+    --border-color: #cbd5e1; /* Thin gray border */
+    --card-bg: #ffffff;
+  }
+
+  [data-theme='rajasthan'] {
+    --primary: #fbbf24; /* Night study amber */
+    --accent: #38bdf8;
+    --brand-bg: #0f172a;
+    --bg-page: #0f172a; /* Night dark background */
+    --text-main: #e2e8f0; /* Soft contrast white */
+    --border-color: #334155; /* Soft contrast slate border */
+    --card-bg: #1e293b;
+  }
+}
+
+@layer base {
+  body {
+    @apply antialiased bg-page text-main font-sans selection:bg-primary/20 transition-colors duration-200;
+  }
+}
+
+@layer utilities {
+  .exam-container {
+    @apply max-w-2xl mx-auto w-full px-4;
+  }
+
+  .exam-card {
+    @apply border border-border-theme bg-[var(--card-bg)] shadow-none p-4 md:p-6;
+  }
+
+  /* Real exam paper rule layout */
+  .exam-question-text {
+    @apply font-sans font-medium text-[15px] md:text-[16px] leading-[1.6] text-main mb-4 tracking-wide;
+  }
+
+  .exam-option-text {
+    @apply font-sans font-normal text-[14px] md:text-[15px] leading-relaxed text-main;
+  }
+
+  /* Thin crisp rectangular buttons */
+  .exam-btn {
+    @apply px-4 py-2 border border-border-theme bg-[var(--card-bg)] hover:bg-slate-50 hover:border-slate-400 text-main transition-colors text-xs font-semibold tracking-wide uppercase active:scale-[0.98] cursor-pointer;
+  }
+
+  .exam-btn-primary {
+    @apply px-4 py-2 bg-slate-900 border border-slate-900 text-white hover:bg-slate-800 transition-colors text-xs font-semibold tracking-wide uppercase cursor-pointer;
+  }
+
+  .touch-target {
+    @apply min-h-[44px] min-w-[44px] flex items-center justify-center;
+  }
+}
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+Devanagari:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+/* Custom Scrollbar for compact feel */
+::-webkit-scrollbar {
+  width: 4px;
+}
+::-webkit-scrollbar-track {
+  @apply bg-transparent;
+}
+::-webkit-scrollbar-thumb {
+  @apply bg-slate-400/20 rounded-none;
+}
