@@ -86,6 +86,8 @@ export default function App() {
   const [dailyDone, setDailyDone] = useState(false);
   const [isDailyChallenge, setIsDailyChallenge] = useState(false);
   const [isMapOpen, setIsMapOpen] = useState(false);
+  const [bookmarks, setBookmarks] = useState<Question[]>([]);
+  const [isBookmarksReview, setIsBookmarksReview] = useState(false);
 
   const { feedback } = useFeedback();
 
@@ -94,6 +96,18 @@ export default function App() {
     const saved = localStorage.getItem('rpsc_current_quiz');
     if (saved) setHasSavedQuiz(true);
   }, [screen]);
+
+  // Load bookmarks on mount
+  useEffect(() => {
+    const savedBookmarks = localStorage.getItem('rpsc_bookmarks');
+    if (savedBookmarks) {
+      try {
+        setBookmarks(JSON.parse(savedBookmarks));
+      } catch (e) {
+        console.error("Failed to parse saved bookmarks", e);
+      }
+    }
+  }, []);
 
   // Persist user and progress
   useEffect(() => {
@@ -128,7 +142,8 @@ export default function App() {
         quizTimer,
         isAnswered,
         isReviewMode,
-        isDailyChallenge
+        isDailyChallenge,
+        isBookmarksReview
       };
       localStorage.setItem('rpsc_current_quiz', JSON.stringify(progress));
     } else if (screen === 'RESULTS') {
@@ -149,6 +164,7 @@ export default function App() {
       setIsAnswered(data.isAnswered);
       setIsReviewMode(data.isReviewMode);
       setIsDailyChallenge(data.isDailyChallenge);
+      setIsBookmarksReview(data.isBookmarksReview || false);
       setScreen('QUIZ');
       feedback('success');
     }
@@ -196,6 +212,7 @@ export default function App() {
     setConfig(prev => ({ ...prev, subject }));
     setIsReviewMode(false);
     setIsDailyChallenge(false);
+    setIsBookmarksReview(false);
     setScreen('SETUP');
   };
 
@@ -206,7 +223,36 @@ export default function App() {
     setCurrentIndex(0);
     setIsReviewMode(true);
     setIsDailyChallenge(false);
+    setIsBookmarksReview(false);
     setScreen('QUIZ');
+  };
+
+  const startBookmarksReview = () => {
+    if (bookmarks.length === 0) return;
+    feedback('click');
+    setQuestions(bookmarks);
+    setUserAnswers(new Array(bookmarks.length).fill(null));
+    setCurrentIndex(0);
+    setIsReviewMode(true);
+    setIsDailyChallenge(false);
+    setIsBookmarksReview(true);
+    setScreen('QUIZ');
+  };
+
+  const toggleBookmark = (q: Question) => {
+    setBookmarks(prev => {
+      const exists = prev.some(b => b.id === q.id);
+      let updated;
+      if (exists) {
+        updated = prev.filter(b => b.id !== q.id);
+        feedback('click');
+      } else {
+        updated = [...prev, q];
+        feedback('success');
+      }
+      localStorage.setItem('rpsc_bookmarks', JSON.stringify(updated));
+      return updated;
+    });
   };
 
   useEffect(() => {
@@ -629,10 +675,13 @@ export default function App() {
                       dailyDone={dailyDone}
                       hasSavedQuiz={hasSavedQuiz}
                       mistakes={mistakes}
+                      bookmarks={bookmarks}
                       subjects={subjects}
                       startSetup={startSetup}
                       startDailyChallenge={startDailyChallenge}
                       startMistakeReview={startMistakeReview}
+                      startBookmarksReview={startBookmarksReview}
+                      toggleBookmark={toggleBookmark}
                       restoreQuiz={restoreQuiz}
                       theme={theme}
                     />
@@ -672,24 +721,46 @@ export default function App() {
                         </div>
                       ) : (
                         <>
-                          <div className="mb-8 relative">
-                            <span className="px-3 py-1 bg-primary/10 text-primary text-[10px] font-bold rounded-sm uppercase tracking-widest">
-                               {isReviewMode ? 'Mistake Notebook' : `${config.subject} • ${config.difficulty}`}
-                            </span>
-                            
-                            <AnimatePresence>
-                              {consecutiveCorrect >= 3 && (
-                                <motion.span 
-                                  initial={{ opacity: 0, x: -10 }}
-                                  animate={{ opacity: 1, x: 0 }}
-                                  exit={{ opacity: 0 }}
-                                  className="ml-4 text-[10px] font-bold text-accent uppercase tracking-widest flex items-center gap-1 inline-flex"
+                          <div className="mb-8 relative pr-1">
+                            <div className="flex justify-between items-center gap-2 mb-4 px-4 md:px-0">
+                              <div className="flex items-center flex-wrap gap-2">
+                                <span className="px-3 py-1 bg-primary/10 text-primary text-[10px] font-bold rounded-sm uppercase tracking-widest">
+                                   {isReviewMode ? (isBookmarksReview ? 'Saved Bookmarks' : 'Mistake Notebook') : `${config.subject} • ${config.difficulty}`}
+                                </span>
+                                
+                                <AnimatePresence>
+                                  {consecutiveCorrect >= 3 && (
+                                    <motion.span 
+                                      initial={{ opacity: 0, x: -10 }}
+                                      animate={{ opacity: 1, x: 0 }}
+                                      exit={{ opacity: 0 }}
+                                      className="text-[10px] font-bold text-accent uppercase tracking-widest flex items-center gap-1 inline-flex"
+                                    >
+                                      <Zap size={10} /> AI: Leveling Up Challenge
+                                    </motion.span>
+                                  )}
+                                </AnimatePresence>
+                              </div>
+
+                              {questions[currentIndex] && (
+                                <button
+                                  type="button"
+                                  onClick={() => toggleBookmark(questions[currentIndex])}
+                                  className="text-slate-400 hover:text-amber-500 transition-colors p-1.5 bg-white border border-slate-200 rounded-full cursor-pointer flex items-center justify-center shadow-sm shrink-0"
+                                  title={bookmarks.some(b => b.id === questions[currentIndex].id) ? "Remove Bookmark" : "Bookmark Question"}
                                 >
-                                  <Zap size={10} /> AI: Leveling Up Challenge
-                                </motion.span>
+                                  <Star 
+                                    size={15} 
+                                    className={`${
+                                      bookmarks.some(b => b.id === questions[currentIndex].id) 
+                                        ? "fill-amber-500 text-amber-500" 
+                                        : "text-slate-400"
+                                    } transition-all`}
+                                  />
+                                </button>
                               )}
-                            </AnimatePresence>
-                            <h2 className="text-lg md:text-xl font-semibold px-4 font-display mt-4 md:mt-6 leading-snug md:leading-tight text-main italic">
+                            </div>
+                            <h2 className="text-lg md:text-xl font-semibold px-4 font-display mt-2 leading-snug md:leading-tight text-main italic">
                                {questions[currentIndex]?.question}
                             </h2>
                           </div>

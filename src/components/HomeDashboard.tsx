@@ -1,7 +1,7 @@
 import React from 'react';
 import { motion } from 'motion/react';
-import { ChevronRight, Sun, Award, BrainCircuit, Activity } from 'lucide-react';
-import { Subject, SubjectMeta, User, ThemeType } from '../types';
+import { ChevronRight, Sun, Award, BrainCircuit, Activity, Star } from 'lucide-react';
+import { Subject, SubjectMeta, User, ThemeType, Question } from '../types';
 
 interface HomeDashboardProps {
   user: User | null;
@@ -10,10 +10,13 @@ interface HomeDashboardProps {
   dailyDone: boolean;
   hasSavedQuiz: boolean;
   mistakes: any[];
+  bookmarks: Question[];
   subjects: SubjectMeta[];
   startSetup: (subjectName: Subject) => void;
   startDailyChallenge: () => void;
   startMistakeReview: () => void;
+  startBookmarksReview: () => void;
+  toggleBookmark: (q: Question) => void;
   restoreQuiz: () => void;
   theme: ThemeType;
 }
@@ -25,10 +28,13 @@ export default function HomeDashboard({
   dailyDone,
   hasSavedQuiz,
   mistakes,
+  bookmarks = [],
   subjects,
   startSetup,
   startDailyChallenge,
   startMistakeReview,
+  startBookmarksReview,
+  toggleBookmark,
   restoreQuiz,
   theme
 }: HomeDashboardProps) {
@@ -122,6 +128,64 @@ export default function HomeDashboard({
             )}
           </div>
         </div>
+      </div>
+
+      {/* Bookmarks Vault section */}
+      <div className="border border-border-theme bg-[var(--card-bg)] p-4 md:p-5 mb-5 text-left font-sans">
+        <div className="flex justify-between items-center border-b border-border-theme pb-2.5 mb-3">
+          <div className="flex items-center gap-1.5">
+            <Star size={11} className="text-amber-500 fill-amber-500 shrink-0" />
+            <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest select-none">
+              Bookmarks Archive ({bookmarks.length})
+            </h3>
+          </div>
+          {bookmarks.length > 0 && (
+            <button
+              type="button"
+              onClick={startBookmarksReview}
+              className="text-[10px] font-bold text-slate-900 border border-slate-900 px-2.5 py-1 bg-[var(--card-bg)] uppercase tracking-wider hover:bg-slate-50 transition-colors cursor-pointer"
+            >
+              Review Bookmarks
+            </button>
+          )}
+        </div>
+
+        {bookmarks.length === 0 ? (
+          <p className="text-[11px] text-slate-400 italic leading-relaxed">
+            No bookmarked questions saved yet. Click the Star icon on any MCQ card during your test to bookmark it.
+          </p>
+        ) : (
+          <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
+            {bookmarks.map((q, idx) => (
+              <div 
+                key={q.id || idx} 
+                className="p-2.5 border border-border-theme bg-[var(--card-bg)] hover:bg-slate-50 hover:border-slate-800 transition-all flex justify-between items-start gap-3 rounded-none group"
+              >
+                <div className="flex-1 min-w-0 text-left">
+                  <span className="text-[9px] font-mono font-bold text-amber-600 uppercase tracking-tighter block mb-0.5">
+                    Bookmark #{(idx + 1).toString().padStart(2, '0')}
+                  </span>
+                  <p className="text-xs font-semibold text-main leading-relaxed">
+                    {q.question}
+                  </p>
+                  <p className="text-[10px] text-slate-500 mt-1">
+                    Correct Answer: <span className="font-mono font-bold text-emerald-600">{q.correctAnswer}</span> — <span className="italic">{q.options[q.correctAnswer]}</span>
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => toggleBookmark(q)}
+                    className="text-[9px] font-bold text-red-500 hover:text-red-700 opacity-60 hover:opacity-100 transition-opacity cursor-pointer px-1.5 py-1 border border-transparent hover:border-red-200 hover:bg-red-50"
+                    title="Remove Bookmark"
+                  >
+                    Remove
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Syllabus & Testing Topics Index */}
