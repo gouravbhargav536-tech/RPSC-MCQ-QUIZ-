@@ -53,6 +53,13 @@ import { mainActivityCode, quizRepositoryCode, buildGradleCode, manifestCode, de
 
 export default function App() {
   const [screen, setScreen] = useState<'LANDING' | 'INTRO' | 'AUTH' | 'HOME' | 'SETUP' | 'RULES' | 'QUIZ' | 'RESULTS'>('LANDING');
+  const [errorToast, setErrorToast] = useState<{ show: boolean; message: string }>({ show: false, message: "" });
+  const showError = (msg: string) => {
+    setErrorToast({ show: true, message: msg });
+    setTimeout(() => {
+      setErrorToast(prev => ({ ...prev, show: false }));
+    }, 6000);
+  };
   const [loading, setLoading] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [theme, setTheme] = useState<ThemeType>('geometric');
@@ -553,8 +560,8 @@ export default function App() {
           guru_mantra: "Fresh AI generation complete."
         }
       });
-    } catch (error) {
-      alert("Error generating quiz. Please try again.");
+    } catch (error: any) {
+      showError(error?.message || "Error generating quiz. Please try again.");
       setScreen('SETUP');
     } finally {
       setLoading(false);
@@ -674,9 +681,9 @@ export default function App() {
       });
       
       feedback('success');
-    } catch (e) {
-      console.error(e);
-      alert("Error injecting custom question. Please try again.");
+    } catch (e: any) {
+      console.error("FRONTEND_ERROR: Formatting failure", e);
+      showError("Error formatting your custom question. Safe offline fallback question loaded.");
     } finally {
       setInjecting(false);
     }
@@ -1446,6 +1453,36 @@ export default function App() {
             <AnimatePresence>
               {isMapOpen && (
                 <RiverMap onClose={() => setIsMapOpen(false)} feedback={feedback} />
+              )}
+            </AnimatePresence>
+
+            {/* Elegant Floating Error Toast */}
+            <AnimatePresence>
+              {errorToast.show && (
+                <motion.div
+                  initial={{ opacity: 0, y: 50, scale: 0.9 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 20, scale: 0.9 }}
+                  className="fixed bottom-16 left-4 right-4 md:left-auto md:right-8 z-[200] max-w-sm w-full bg-slate-900 border border-red-500/30 backdrop-blur-md rounded-2xl p-4 shadow-2xl flex items-start gap-3 text-red-200"
+                >
+                  <div className="p-2 bg-red-950/80 rounded-xl text-red-400 shrink-0 border border-red-500/20">
+                    <XCircle size={18} className="animate-pulse" />
+                  </div>
+                  <div className="flex-1 text-left">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-red-400 font-mono mb-1">
+                      System Generation Alert
+                    </h4>
+                    <p className="text-[11px] text-slate-300 leading-relaxed">
+                      {errorToast.message}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setErrorToast(prev => ({ ...prev, show: false }))}
+                    className="text-slate-400 hover:text-slate-200 text-xs px-1 hover:bg-slate-800 rounded shrink-0"
+                  >
+                    ✕
+                  </button>
+                </motion.div>
               )}
             </AnimatePresence>
 
