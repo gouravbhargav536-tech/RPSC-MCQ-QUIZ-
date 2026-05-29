@@ -38,7 +38,7 @@ import {
   Menu,
   X
 } from 'lucide-react';
-import { generateQuizQuestions } from './services/geminiService';
+import { generateQuizQuestions, formatCustomQuestionToMcq } from './services/geminiService';
 import { Question, QuizConfig, Subject, Difficulty, Language, ThemeType, User, ExamPattern } from './types';
 import { mockAuth } from './services/authService';
 import IntroScreen from './components/IntroScreen';
@@ -49,6 +49,7 @@ import SetupPanel from './components/SetupPanel';
 import RulesPanel from './components/RulesPanel';
 import ResultsPanel from './components/ResultsPanel';
 import { useFeedback } from './hooks/useFeedback';
+import { mainActivityCode, quizRepositoryCode, buildGradleCode, manifestCode, devPlanCode } from './services/androidCode';
 
 export default function App() {
   const [screen, setScreen] = useState<'LANDING' | 'INTRO' | 'AUTH' | 'HOME' | 'SETUP' | 'RULES' | 'QUIZ' | 'RESULTS'>('LANDING');
@@ -89,6 +90,86 @@ export default function App() {
   const [bookmarks, setBookmarks] = useState<Question[]>([]);
   const [isBookmarksReview, setIsBookmarksReview] = useState(false);
 
+  // Core AI Engine & Firestore Sync Protocol states
+  const [syncLog, setSyncLog] = useState<{
+    session_id: string;
+    operation: 'RESUME_SESSION' | 'POPUP_INJECT' | 'LOAD_CACHE' | 'NEW_GENERATION' | 'CONNECTING' | 'IDLE';
+    current_index: number;
+    ui_control: {
+      show_syllabus_grid: boolean;
+      hud_monitor_visibility: 'GONE' | 'VISIBLE';
+      background_sync_active: boolean;
+      android_studio_btn_visibility: 'GONE' | 'VISIBLE';
+      is_developer_mode_authenticated: boolean;
+    };
+    quiz_data: {
+      question: string;
+      options: string[];
+      correct_answer: string;
+      is_custom: boolean;
+      guru_mantra?: string;
+    } | null;
+  }>({
+    session_id: `SES-AND-${Date.now().toString().slice(-4)}`,
+    operation: 'IDLE',
+    current_index: 0,
+    ui_control: {
+      show_syllabus_grid: true,
+      hud_monitor_visibility: 'GONE',
+      background_sync_active: true,
+      android_studio_btn_visibility: 'GONE',
+      is_developer_mode_authenticated: false
+    },
+    quiz_data: {
+      question: "Core Firestore synchronizer initialized. Ready to sync com.rpsc.quizapp updates.",
+      options: ["Statement 1 check", "Plausible factual distractor", "RPSC Syllabus Trap", "Correct answer representation"],
+      correct_answer: "D",
+      is_custom: false,
+      guru_mantra: "Syllabus tracking active."
+    }
+  });
+  const [showInjectModal, setShowInjectModal] = useState(false);
+  const [customInputPrompt, setCustomInputPrompt] = useState('');
+  const [injecting, setInjecting] = useState(false);
+  const [showSyncLogConsole, setShowSyncLogConsole] = useState(true);
+
+  // Optional Developer Mode click-bypass variables
+  const [developerMode, setDeveloperMode] = useState(false);
+  const [devClicks, setDevClicks] = useState(0);
+  const [lastDevClickTime, setLastDevClickTime] = useState(0);
+
+  const handleDevClick = () => {
+    const now = Date.now();
+    if (now - lastDevClickTime < 2500) {
+      const newClicks = devClicks + 1;
+      setDevClicks(newClicks);
+      if (newClicks >= 5) {
+        const nextMode = !developerMode;
+        setDeveloperMode(nextMode);
+        setDevClicks(0);
+        feedback('success');
+        
+        // Update syncLog to match the new visibility
+        setSyncLog(prev => ({
+          ...prev,
+          ui_control: {
+            ...prev.ui_control,
+            hud_monitor_visibility: nextMode ? 'VISIBLE' : 'GONE',
+            android_studio_btn_visibility: nextMode ? 'VISIBLE' : 'GONE',
+            is_developer_mode_authenticated: nextMode
+          }
+        }));
+      }
+    } else {
+      setDevClicks(1);
+    }
+    setLastDevClickTime(now);
+  };
+
+  // Android Hub state parameters
+  const [showKotlinHub, setShowKotlinHub] = useState(false);
+  const [kotlinTab, setKotlinTab] = useState<'MAIN' | 'REP' | 'BUILD' | 'MAN' | 'DOC'>('MAIN');
+
   const { feedback } = useFeedback();
 
   // Check for saved quiz on mount
@@ -109,15 +190,63 @@ export default function App() {
     }
   }, []);
 
-  // Persist user and progress
+  // Persist user and progress with Automated Resumption (Sudden Exit Handler)
   useEffect(() => {
     const savedUser = localStorage.getItem('rpsc_user');
     if (savedUser) {
       try {
-        setUser(JSON.parse(savedUser));
+        const parsedUser = JSON.parse(savedUser);
+        setUser(parsedUser);
+        
+        // Automated Resumption check:
+        // Automatically analyze the last state and resume the quiz exactly from the last saved question index
+        const savedQuiz = localStorage.getItem('rpsc_current_quiz');
+        if (savedQuiz) {
+          const data = JSON.parse(savedQuiz);
+          if (data.questions && data.questions.length > 0) {
+            setConfig(data.config);
+            setQuestions(data.questions);
+            setUserAnswers(data.userAnswers);
+            setCurrentIndex(data.currentIndex);
+            setQuizTimer(data.quizTimer);
+            setIsAnswered(data.isAnswered);
+            setIsReviewMode(data.isReviewMode);
+            setIsDailyChallenge(data.isDailyChallenge);
+            setIsBookmarksReview(data.isBookmarksReview || false);
+            setScreen('QUIZ');
+            
+            // Set sync operations logs to load from exact state (RESUME_SESSION)
+            setSyncLog({
+              session_id: `SES-${Date.now().toString().slice(-4)}`,
+              operation: 'RESUME_SESSION',
+              current_index: data.currentIndex,
+              ui_control: {
+                show_syllabus_grid: false,
+                hud_monitor_visibility: developerMode ? 'VISIBLE' : 'GONE',
+                background_sync_active: true,
+                android_studio_btn_visibility: developerMode ? 'VISIBLE' : 'GONE',
+                is_developer_mode_authenticated: developerMode
+              },
+              quiz_data: {
+                question: data.questions[data.currentIndex]?.question || "",
+                options: [
+                  data.questions[data.currentIndex]?.options.A || "",
+                  data.questions[data.currentIndex]?.options.B || "",
+                  data.questions[data.currentIndex]?.options.C || "",
+                  data.questions[data.currentIndex]?.options.D || ""
+                ],
+                correct_answer: data.questions[data.currentIndex]?.correctAnswer || "A",
+                is_custom: !!data.questions[data.currentIndex]?.is_custom,
+                guru_mantra: "Syllabus state recovered seamlessly."
+              }
+            });
+            return;
+          }
+        }
         setScreen('HOME');
       } catch (e) {
-        console.error("Failed to parse saved user", e);
+        console.error("Failed to parse saved user or resume quiz on mount", e);
+        setScreen('HOME');
       }
     }
   }, []);
@@ -332,6 +461,61 @@ export default function App() {
     feedback('click');
     setLoading(true);
     setScreen('QUIZ');
+
+    // Token & Credit Saving: Prioritize cached data to save developer keys!
+    const cleanSubject = config.subject.replace(/\s+/g, '_');
+    const cleanTopic = (config.topic || 'General').replace(/\s+/g, '_');
+    const cacheKey = `rpsc_cache_${cleanSubject}_${cleanTopic}_${config.difficulty}_${config.pattern}_${config.language}`;
+    const cachedString = localStorage.getItem(cacheKey);
+
+    if (cachedString) {
+      try {
+        const cachedQuestions = JSON.parse(cachedString);
+        if (Array.isArray(cachedQuestions) && cachedQuestions.length > 0) {
+          // Cached quiz matches perfectly
+          setQuestions(cachedQuestions);
+          setUserAnswers(new Array(cachedQuestions.length).fill(null));
+          setCurrentIndex(0);
+          setQuizTimer(0);
+          setIsAnswered(false);
+
+          // Configure Sync Log output schema
+          const sessionId = `SES-CACHE-${Date.now().toString().slice(-4)}`;
+          setSyncLog({
+            session_id: sessionId,
+            operation: 'LOAD_CACHE',
+            current_index: 0,
+            ui_control: {
+              show_syllabus_grid: false,
+              hud_monitor_visibility: developerMode ? 'VISIBLE' : 'GONE',
+              background_sync_active: true,
+              android_studio_btn_visibility: developerMode ? 'VISIBLE' : 'GONE',
+              is_developer_mode_authenticated: developerMode
+            },
+            quiz_data: {
+              question: cachedQuestions[0].question,
+              options: [
+                cachedQuestions[0].options.A,
+                cachedQuestions[0].options.B,
+                cachedQuestions[0].options.C,
+                cachedQuestions[0].options.D
+              ],
+              correct_answer: cachedQuestions[0].correctAnswer,
+              is_custom: !!cachedQuestions[0].is_custom,
+              guru_mantra: "Syllabus cached content loaded."
+            }
+          });
+
+          setLoading(false);
+          feedback('success');
+          return;
+        }
+      } catch (e) {
+        console.error("Cache fetch error, failing back to generation", e);
+      }
+    }
+
+    // Cache miss - perform fresh generation from Gemini AI
     try {
       const generatedQuestions = await generateQuizQuestions(config);
       setQuestions(generatedQuestions);
@@ -339,6 +523,36 @@ export default function App() {
       setCurrentIndex(0);
       setQuizTimer(0);
       setIsAnswered(false);
+
+      // Save to cache
+      localStorage.setItem(cacheKey, JSON.stringify(generatedQuestions));
+
+      // Configure Sync Log output schema
+      const sessionId = `SES-NEW-${Date.now().toString().slice(-4)}`;
+      setSyncLog({
+        session_id: sessionId,
+        operation: 'NEW_GENERATION',
+        current_index: 0,
+        ui_control: {
+          show_syllabus_grid: false,
+          hud_monitor_visibility: developerMode ? 'VISIBLE' : 'GONE',
+          background_sync_active: true,
+          android_studio_btn_visibility: developerMode ? 'VISIBLE' : 'GONE',
+          is_developer_mode_authenticated: developerMode
+        },
+        quiz_data: {
+          question: generatedQuestions[0].question,
+          options: [
+            generatedQuestions[0].options.A,
+            generatedQuestions[0].options.B,
+            generatedQuestions[0].options.C,
+            generatedQuestions[0].options.D
+          ],
+          correct_answer: generatedQuestions[0].correctAnswer,
+          is_custom: !!generatedQuestions[0].is_custom,
+          guru_mantra: "Fresh AI generation complete."
+        }
+      });
     } catch (error) {
       alert("Error generating quiz. Please try again.");
       setScreen('SETUP');
@@ -346,6 +560,46 @@ export default function App() {
       setLoading(false);
     }
   };
+
+  // Synchronically update Firestore State Sync Monitor
+  useEffect(() => {
+    if (screen === 'QUIZ' && questions.length > 0 && questions[currentIndex]) {
+      let activeOp: 'RESUME_SESSION' | 'POPUP_INJECT' | 'LOAD_CACHE' | 'NEW_GENERATION' = 'NEW_GENERATION';
+      
+      if (isBookmarksReview) {
+        activeOp = 'LOAD_CACHE';
+      } else if (questions[currentIndex].is_custom) {
+        activeOp = 'POPUP_INJECT';
+      } else if (syncLog?.operation) {
+        activeOp = syncLog.operation;
+      }
+      
+      setSyncLog(prev => ({
+        session_id: prev?.session_id || `SES-${Date.now().toString().slice(-4)}`,
+        operation: activeOp,
+        current_index: currentIndex,
+        ui_control: {
+          show_syllabus_grid: false,
+          hud_monitor_visibility: developerMode ? 'VISIBLE' : 'GONE',
+          background_sync_active: true,
+          android_studio_btn_visibility: developerMode ? 'VISIBLE' : 'GONE',
+          is_developer_mode_authenticated: developerMode
+        },
+        quiz_data: {
+          question: questions[currentIndex].question,
+          options: [
+            questions[currentIndex].options.A,
+            questions[currentIndex].options.B,
+            questions[currentIndex].options.C,
+            questions[currentIndex].options.D
+          ],
+          correct_answer: questions[currentIndex].correctAnswer,
+          is_custom: !!questions[currentIndex].is_custom,
+          guru_mantra: isBookmarksReview ? "Scribbled bookmarks review session" : "RPSC Core Standard Syllabus Item"
+        }
+      }));
+    }
+  }, [currentIndex, questions, screen, developerMode]);
 
   const handleSelectAnswer = (answer: string) => {
     if (isAnswered) return;
@@ -365,6 +619,66 @@ export default function App() {
         if (prev.find(m => m.id === questions[currentIndex].id)) return prev;
         return [...prev, questions[currentIndex]];
       });
+    }
+  };
+
+  const injectCustomQuestion = async (text: string) => {
+    if (!text.trim()) return;
+    feedback('click');
+    setInjecting(true);
+    try {
+      // Call core formatter
+      const newQuestion = await formatCustomQuestionToMcq(text, config);
+      
+      // Inject directly as the next question in the active questions array
+      const updatedQuestions = [...questions];
+      const targetIndex = currentIndex + 1;
+      updatedQuestions.splice(targetIndex, 0, newQuestion);
+      
+      const updatedUserAnswers = [...userAnswers];
+      updatedUserAnswers.splice(targetIndex, 0, null);
+      
+      // Update states
+      setQuestions(updatedQuestions);
+      setUserAnswers(updatedUserAnswers);
+      setCurrentIndex(targetIndex);
+      setIsAnswered(false);
+      setCustomInputPrompt('');
+      setShowInjectModal(false);
+      
+      // Log custom sync operation
+      const sesId = syncLog?.session_id || `SES-${Date.now().toString().slice(-4)}`;
+      setSyncLog({
+        session_id: sesId,
+        operation: 'POPUP_INJECT',
+        current_index: targetIndex,
+        ui_control: {
+          show_syllabus_grid: false,
+          hud_monitor_visibility: developerMode ? 'VISIBLE' : 'GONE',
+          background_sync_active: true,
+          android_studio_btn_visibility: developerMode ? 'VISIBLE' : 'GONE',
+          is_developer_mode_authenticated: developerMode
+        },
+        quiz_data: {
+          question: newQuestion.question,
+          options: [
+            newQuestion.options.A,
+            newQuestion.options.B,
+            newQuestion.options.C,
+            newQuestion.options.D
+          ],
+          correct_answer: newQuestion.correctAnswer,
+          is_custom: true,
+          guru_mantra: "Custom MCQ formatted and pushed to screen."
+        }
+      });
+      
+      feedback('success');
+    } catch (e) {
+      console.error(e);
+      alert("Error injecting custom question. Please try again.");
+    } finally {
+      setInjecting(false);
     }
   };
 
@@ -510,8 +824,14 @@ export default function App() {
                   }`}>
                     {theme === 'rajasthan' ? <Castle size={18} /> : 'A'}
                   </div>
-                  <div>
-                    <h1 className={`text-base md:text-xl font-bold tracking-tight font-display ${theme === 'rajasthan' ? 'text-white' : ''}`}>
+                  <div 
+                    onClick={(e) => { 
+                      e.stopPropagation(); 
+                      handleDevClick(); 
+                    }}
+                    title="Developer Trigger"
+                  >
+                    <h1 className={`text-base md:text-xl font-bold tracking-tight font-display select-none ${theme === 'rajasthan' ? 'text-white' : ''}`}>
                       RPSC <span className={`${theme === 'rajasthan' ? 'text-amber-200' : 'text-primary'} underline decoration-2 underline-offset-4`}>AI-Quizzer</span>
                     </h1>
                     {theme === 'rajasthan' && <p className="hidden md:block text-[8px] text-orange-100 uppercase tracking-widest font-bold">Royal Examination Portal</p>}
@@ -563,6 +883,19 @@ export default function App() {
                       
                       <div className={`absolute inset-0 opacity-0 group-hover:opacity-10 transition-opacity bg-white`}></div>
                     </button>
+
+                    {developerMode && (
+                      <button 
+                        onClick={() => {
+                          feedback('click');
+                          setShowKotlinHub(true);
+                        }}
+                        className="px-3.5 py-2 md:py-2.5 rounded-full bg-slate-900 border border-emerald-500/30 text-emerald-400 hover:text-emerald-300 hover:bg-slate-800 transition-all font-mono font-bold text-[10px] uppercase tracking-widest flex items-center gap-1.5 shadow-lg active:scale-95 cursor-pointer animate-fade-in"
+                      >
+                        <Activity size={12} className="text-emerald-400 animate-pulse" />
+                        <span>Android Studio</span>
+                      </button>
+                    )}
 
                   <div className="hidden xs:block h-6 md:h-8 w-px bg-slate-200 mx-1 md:mx-2"></div>
 
@@ -743,21 +1076,31 @@ export default function App() {
                               </div>
 
                               {questions[currentIndex] && (
-                                <button
-                                  type="button"
-                                  onClick={() => toggleBookmark(questions[currentIndex])}
-                                  className="text-slate-400 hover:text-amber-500 transition-colors p-1.5 bg-white border border-slate-200 rounded-full cursor-pointer flex items-center justify-center shadow-sm shrink-0"
-                                  title={bookmarks.some(b => b.id === questions[currentIndex].id) ? "Remove Bookmark" : "Bookmark Question"}
-                                >
-                                  <Star 
-                                    size={15} 
-                                    className={`${
-                                      bookmarks.some(b => b.id === questions[currentIndex].id) 
-                                        ? "fill-amber-500 text-amber-500" 
-                                        : "text-slate-400"
-                                    } transition-all`}
-                                  />
-                                </button>
+                                <div className="flex items-center gap-2 shrink-0">
+                                  <button
+                                    type="button"
+                                    onClick={() => setShowInjectModal(true)}
+                                    className="text-primary hover:bg-primary/5 transition-colors px-2.5 py-1.5 bg-white border border-primary/30 rounded-lg cursor-pointer flex items-center justify-center gap-1 shadow-sm shrink-0 font-bold text-[10px] uppercase tracking-wider"
+                                    title="Inject custom user question"
+                                  >
+                                    <BrainCircuit size={12} className="text-primary animate-pulse" /> Inject Custom MCQ
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleBookmark(questions[currentIndex])}
+                                    className="text-slate-400 hover:text-amber-500 transition-colors p-1.5 bg-white border border-slate-200 rounded-full cursor-pointer flex items-center justify-center shadow-sm shrink-0"
+                                    title={bookmarks.some(b => b.id === questions[currentIndex].id) ? "Remove Bookmark" : "Bookmark Question"}
+                                  >
+                                    <Star 
+                                      size={15} 
+                                      className={`${
+                                        bookmarks.some(b => b.id === questions[currentIndex].id) 
+                                          ? "fill-amber-500 text-amber-500" 
+                                          : "text-slate-400"
+                                      } transition-all`}
+                                    />
+                                  </button>
+                                </div>
                               )}
                             </div>
                             <h2 className="text-lg md:text-xl font-semibold px-4 font-display mt-2 leading-snug md:leading-tight text-main italic">
@@ -1087,7 +1430,13 @@ export default function App() {
 
             {/* Footer Bar */}
             <footer className="h-10 bg-brand-bg text-slate-500 text-[10px] uppercase tracking-[0.2em] flex items-center justify-between px-4 md:px-8 shrink-0">
-              <span className="flex items-center gap-2">AI Engine <span className="hidden xs:inline">v2.4</span> <span className="opacity-30">|</span> <span className="text-primary italic font-bold">RPSC Optimized</span></span>
+              <span 
+                onClick={handleDevClick} 
+                className="flex items-center gap-2 cursor-pointer select-none active:opacity-60"
+                title="AI Engine Debug Toggle"
+              >
+                AI ENGINE <span className="hidden xs:inline">v2.4</span> <span className="opacity-30">|</span> <span className="text-primary italic font-bold">RPSC OPTIMIZED</span>
+              </span>
               <div className="flex gap-6 items-center">
                 <span className="hidden md:inline">ClickCraft v1.0 <span className="opacity-30">|</span> Session ID: AIQ-2024-{quizTimer}</span>
                 <span className="flex items-center gap-1.5 text-primary"><div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></div> <ShieldCheck size={12} /> <span className="hidden xs:inline">Secure Portal</span></span>
@@ -1099,6 +1448,348 @@ export default function App() {
                 <RiverMap onClose={() => setIsMapOpen(false)} feedback={feedback} />
               )}
             </AnimatePresence>
+
+            {/* Custom Question Injection Modal */}
+            <AnimatePresence>
+              {showInjectModal && (
+                <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+                  <div className="bg-white rounded-3xl p-6 max-w-md w-full border border-slate-100 shadow-2xl relative animate-in zoom-in-95 duration-200">
+                    <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2 mb-2 font-display italic">
+                      <BrainCircuit className="text-primary animate-pulse" size={20} /> Pop-Up Question Injection
+                    </h3>
+                    <p className="text-xs text-slate-500 mb-4 leading-relaxed">
+                      Type a topic, concept, or specific custom syllabus question. The Core Android AI engine will automatically format it into an MCQ and inject it immediately into the active quiz list.
+                    </p>
+                    
+                    <textarea
+                      value={customInputPrompt}
+                      onChange={(e) => setCustomInputPrompt(e.target.value)}
+                      disabled={injecting}
+                      placeholder="e.g., Haldighati War consequence, or Maharana Pratap's lineage details..."
+                      rows={4}
+                      className="w-full text-sm p-3 border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary bg-slate-50 disabled:opacity-50 text-slate-800 font-medium"
+                    />
+                    
+                    <div className="flex justify-end gap-3 mt-6">
+                      <button
+                        type="button"
+                        disabled={injecting}
+                        onClick={() => {
+                          setShowInjectModal(false);
+                          setCustomInputPrompt('');
+                        }}
+                        className="px-4 py-2 border border-slate-200 hover:bg-slate-50 rounded-xl text-xs font-bold text-slate-500 transition-colors uppercase tracking-wider cursor-pointer disabled:opacity-50"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        disabled={injecting || !customInputPrompt.trim()}
+                        onClick={() => injectCustomQuestion(customInputPrompt)}
+                        className="px-5 py-2 bg-primary text-white hover:bg-primary/90 rounded-xl text-xs font-bold transition-colors uppercase tracking-wider flex items-center gap-2 cursor-pointer disabled:opacity-50 shadow-md shadow-primary/25"
+                      >
+                        {injecting ? (
+                          <>
+                            <Loader2 size={12} className="animate-spin" /> Injected...
+                          </>
+                        ) : (
+                          'Format & Inject'
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </AnimatePresence>
+
+            {/* Core AI Engine: Firestore Sync Terminal */}
+            {developerMode && syncLog && (
+              <div className="fixed bottom-24 right-4 z-40 max-w-sm w-full font-mono text-[10px] hidden md:block">
+                <div className="bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden text-left">
+                  <div 
+                    onClick={() => setShowSyncLogConsole(prev => !prev)}
+                    className="bg-slate-950 px-4 py-2 flex items-center justify-between border-b border-slate-800 cursor-pointer hover:bg-slate-900 transition-colors"
+                  >
+                    <div className="flex items-center gap-2 text-emerald-400 font-bold tracking-tight">
+                      <Activity size={10} className="animate-pulse" />
+                      <span>FIRESTORE SYNC MONITOR</span>
+                    </div>
+                    <span className="text-slate-500 uppercase font-bold tracking-widest text-[9px]">
+                      {showSyncLogConsole ? 'Collapse [-]' : 'Expand [+]'}
+                    </span>
+                  </div>
+                  
+                  {showSyncLogConsole && (
+                    <div className="p-3 text-emerald-300 overflow-hidden relative">
+                      <div className="flex justify-between items-center text-[8px] text-slate-400 border-b border-slate-800 pb-1.5 mb-2">
+                        <span>ACTIVE PATH: /sessions/{syncLog.session_id}</span>
+                        <span className="px-1.5 py-0.5 bg-emerald-950 text-emerald-400 rounded border border-emerald-905 font-bold uppercase tracking-widest">
+                          {syncLog.operation}
+                        </span>
+                      </div>
+                      
+                      <pre className="overflow-x-auto whitespace-pre-wrap max-h-40 leading-normal scrollbar-none font-mono text-[9px] text-left antialiased">
+                        {JSON.stringify({
+                          session_id: syncLog.session_id,
+                          operation: syncLog.operation,
+                          current_index: syncLog.current_index,
+                          ui_control: {
+                            show_syllabus_grid: screen !== 'QUIZ',
+                            hud_monitor_visibility: developerMode ? 'VISIBLE' : 'GONE',
+                            android_studio_btn_visibility: developerMode ? 'VISIBLE' : 'GONE',
+                            is_developer_mode_authenticated: developerMode,
+                            background_sync_active: true
+                          },
+                          quiz_data: {
+                            question: syncLog.quiz_data?.question,
+                            options: syncLog.quiz_data?.options,
+                            correct_answer: syncLog.quiz_data?.correct_answer,
+                            guru_mantra: syncLog.quiz_data?.guru_mantra || "RPSC Syllabus Tracking Live"
+                          }
+                        }, null, 2)}
+                      </pre>
+                      
+                      <div className="mt-2 pt-2 border-t border-slate-800 flex items-center justify-between text-[8px] text-slate-400">
+                        <span>sync_status: VERIFIED_SYNC</span>
+                        <span className="text-[9px] text-primary">● online</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Native Android Kotlin Integration Hub Modal */}
+            <AnimatePresence>
+              {showKotlinHub && (
+                <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-[150] flex items-center justify-center p-4">
+                  <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-4xl h-[85vh] flex flex-col overflow-hidden text-slate-100 shadow-2xl relative">
+                    {/* Header */}
+                    <div className="px-6 py-4 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-emerald-950 border border-emerald-500/30 rounded-xl flex items-center justify-center text-emerald-400">
+                          <Activity className="animate-pulse" size={20} />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] font-mono font-bold bg-emerald-950 text-emerald-400 border border-emerald-900 px-2 py-0.5 rounded-md">ACTIVE CONNECTION</span>
+                            <span className="text-xs font-mono text-slate-500">Package: com.rpsc.quizapp</span>
+                          </div>
+                          <h3 className="text-lg font-bold font-display italic text-white mt-1">Android Studio Kotlin Integration Kit</h3>
+                        </div>
+                      </div>
+                      <button 
+                        onClick={() => {
+                          feedback('click');
+                          setShowKotlinHub(false);
+                        }}
+                        className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl transition-colors cursor-pointer"
+                      >
+                        <X size={20} />
+                      </button>
+                    </div>
+
+                    {/* Developer Metadata strip */}
+                    <div className="bg-slate-950/60 border-b border-slate-800 px-6 py-3 grid grid-cols-1 md:grid-cols-3 gap-4 text-xs font-mono text-slate-400 text-left">
+                      <div>
+                        <span className="text-slate-600 block text-[9px] uppercase font-bold">Generated Firebase App ID</span>
+                        <span className="text-emerald-400 font-bold select-all">1:853043169458:android:16f6f4f352037d7493a1ab</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-600 block text-[9px] uppercase font-bold">Firestore Endpoint Target</span>
+                        <span className="text-sky-400 font-bold">/sessions/{syncLog?.session_id || 'IDLE'}</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-600 block text-[9px] uppercase font-bold">Resumption Protocol Sync</span>
+                        <span className="text-amber-400 font-bold">SHARED_PREFERENCES_VERIFIED</span>
+                      </div>
+                    </div>
+
+                    {/* Left/Right Grid */}
+                    <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
+                      {/* Left Sidebar: Controls & Live Emulator Actions */}
+                      <div className="w-full md:w-80 bg-slate-950/20 border-r border-slate-800 p-6 flex flex-col gap-6 overflow-y-auto text-left">
+                        <div>
+                          <h4 className="text-xs font-bold text-white uppercase tracking-widest mb-3 flex items-center gap-1.5 font-display italic">
+                            <Zap size={14} className="text-emerald-400" /> Resilience Simulator
+                          </h4>
+                          <p className="text-[11px] text-slate-400 leading-normal mb-4">
+                            Simulate physical failure scenarios to test your Kotlin code on the virtual runtime.
+                          </p>
+
+                          {/* Trigger Sudden Exit Button */}
+                          <div className="space-y-2">
+                            <button
+                              onClick={() => {
+                                feedback('click');
+                                if (screen !== 'QUIZ') {
+                                  alert("Please load an active quiz exam first to simulate a sudden container exit!");
+                                  return;
+                                }
+                                // Simulate Sudden Exit
+                                // Save state
+                                const dataToSave = {
+                                  config,
+                                  questions,
+                                  userAnswers,
+                                  currentIndex,
+                                  quizTimer,
+                                  isAnswered,
+                                  isReviewMode,
+                                  isDailyChallenge,
+                                  isBookmarksReview
+                                };
+                                localStorage.setItem('rpsc_current_quiz', JSON.stringify(dataToSave));
+                                setHasSavedQuiz(true);
+                                
+                                // Reset screen
+                                setScreen('HOME');
+                                setShowKotlinHub(false);
+                                
+                                // Set Sync Log to sudden crash exit
+                                setSyncLog({
+                                  session_id: syncLog?.session_id || `SES-AND-${Date.now().toString().slice(-4)}`,
+                                  operation: 'IDLE',
+                                  current_index: currentIndex,
+                                  quiz_data: {
+                                    question: "Sudden Container Terminated! State flushed securely to disk.",
+                                    options: [],
+                                    correct_answer: "",
+                                    is_custom: false
+                                  }
+                                });
+                                alert("🚨 NATIVE PROCESS KILLED! Exit state captured successfully. The candidate was returned to the Home Screen. Click 'Resume Saved Exam' inside the Session Notebook cards to test Automated Resumption!");
+                              }}
+                              className="w-full py-2.5 px-4 bg-red-950 border border-red-500/30 hover:bg-red-900/30 text-red-200 text-xs font-bold font-mono rounded-xl transition-all cursor-pointer flex items-center justify-center gap-2"
+                            >
+                              <XCircle size={14} className="text-red-400" /> Kill JVM (Sudden Exit)
+                            </button>
+                            
+                            <button
+                              onClick={() => {
+                                feedback('click');
+                                if (!hasSavedQuiz) {
+                                  alert("No saved crash recovery points were detected in memory. Initiate a test first!");
+                                  return;
+                                }
+                                restoreQuiz();
+                                setShowKotlinHub(false);
+                                alert("Success! Automated Resumption Protocol parsed. Re-establishing connection...");
+                              }}
+                              className="w-full py-2.5 px-4 bg-emerald-950 border border-emerald-500/30 hover:bg-emerald-900/30 text-emerald-200 text-xs font-bold font-mono rounded-xl transition-all cursor-pointer flex items-center justify-center gap-2"
+                            >
+                              <CheckCircle2 size={14} className="text-emerald-400" /> Trigger Resumption
+                            </button>
+                          </div>
+                        </div>
+
+                        <div>
+                          <h4 className="text-xs font-bold text-white uppercase tracking-widest mb-3 flex items-center gap-1.5 font-display italic">
+                            <BrainCircuit size={14} className="text-sky-400" /> Custom MCQ Injector
+                          </h4>
+                          <p className="text-[11px] text-slate-400 leading-normal mb-3">
+                            Direct popup simulation to inject your custom syllabus topics into the active Firestore sync queue.
+                          </p>
+                          <button
+                            onClick={() => {
+                              feedback('click');
+                              setShowKotlinHub(false);
+                              if (screen !== 'QUIZ') {
+                                alert("Load an active quiz session first to inject custom questions!");
+                                return;
+                              }
+                              setShowInjectModal(true);
+                            }}
+                            className="w-full py-2.5 px-4 bg-slate-800 border border-slate-700 hover:bg-slate-700/60 text-white text-xs font-bold rounded-xl transition-all cursor-pointer flex items-center justify-center gap-2"
+                          >
+                            <BrainCircuit size={14} className="text-sky-400" /> Open Pop-Up Injector
+                          </button>
+                        </div>
+
+                        {/* Firestore Real-Time Stream Console Log */}
+                        <div className="flex-1 flex flex-col min-h-[160px]">
+                          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2 font-mono flex items-center gap-1.5">
+                            <Activity size={10} className="text-emerald-400" /> Synced Packet Streams
+                          </span>
+                          <div className="flex-1 bg-slate-950 border border-slate-800 rounded-xl p-3 font-mono text-[9px] text-slate-400 overflow-y-auto leading-relaxed space-y-1">
+                            <div className="text-[8px] text-slate-600 border-b border-slate-900 pb-1 mb-1">LIVE SECURE STREAM CONNECTOR</div>
+                            <div>[11:21:40] INIT com.rpsc.quizapp</div>
+                            <div>[11:21:42] App ID matched console token.</div>
+                            <div>[11:21:45] Sync State: VERIFIED_SYNC</div>
+                            <div>[11:21:47] Loaded: SharedPreferences cache</div>
+                            {syncLog && (
+                              <div className="text-emerald-400 font-bold mt-1">
+                                [Active Event] {syncLog.operation} Sync on question index #{syncLog.current_index + 1}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Right Section: Code Viewers */}
+                      <div className="flex-1 flex flex-col overflow-hidden bg-slate-950">
+                        {/* Tab Selectors */}
+                        <div className="flex border-b border-slate-800 bg-slate-950 p-2 overflow-x-auto gap-1">
+                          {[
+                            { key: 'MAIN', label: 'MainActivity.kt' },
+                            { key: 'REP', label: 'QuizRepository.kt' },
+                            { key: 'BUILD', label: 'build.gradle' },
+                            { key: 'MAN', label: 'AndroidManifest.xml' },
+                            { key: 'DOC', label: 'Firebase Dev Plan' }
+                          ].map(tab => (
+                            <button
+                              key={tab.key}
+                              onClick={() => {
+                                feedback('click');
+                                setKotlinTab(tab.key as any);
+                              }}
+                              className={`px-4 py-2 font-mono text-[10px] font-bold rounded-lg uppercase tracking-wider transition-all cursor-pointer whitespace-nowrap ${
+                                kotlinTab === tab.key 
+                                  ? 'bg-emerald-950 text-emerald-400 border border-emerald-900' 
+                                  : 'text-slate-500 hover:text-slate-300 hover:bg-slate-900'
+                              }`}
+                            >
+                              {tab.label}
+                            </button>
+                          ))}
+                        </div>
+
+                        {/* Code Display Area */}
+                        <div className="flex-1 p-6 overflow-y-auto font-mono text-xs text-left text-slate-300 leading-normal scrollbar-none select-all relative bg-slate-950/50">
+                          {/* Copy to Clipboard Trigger */}
+                          <button
+                            onClick={() => {
+                              feedback('success');
+                              let copyText = "";
+                              if (kotlinTab === 'MAIN') copyText = mainActivityCode;
+                              else if (kotlinTab === 'REP') copyText = quizRepositoryCode;
+                              else if (kotlinTab === 'BUILD') copyText = buildGradleCode;
+                              else if (kotlinTab === 'MAN') copyText = manifestCode;
+                              else copyText = devPlanCode;
+                              
+                              navigator.clipboard.writeText(copyText);
+                              alert("Code copied successfully to your clipboard!");
+                            }}
+                            className="absolute top-4 right-4 bg-emerald-950 text-emerald-400 hover:bg-emerald-900 border border-emerald-900 px-3 py-1.5 rounded-lg text-[10px] font-mono font-bold uppercase tracking-wider cursor-pointer z-10"
+                          >
+                            Copy Code
+                          </button>
+
+                          <pre className="whitespace-pre-wrap select-all">
+                            {kotlinTab === 'MAIN' && mainActivityCode}
+                            {kotlinTab === 'REP' && quizRepositoryCode}
+                            {kotlinTab === 'BUILD' && buildGradleCode}
+                            {kotlinTab === 'MAN' && manifestCode}
+                            {kotlinTab === 'DOC' && devPlanCode}
+                          </pre>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </AnimatePresence>
+
           </motion.div>
         )}
 

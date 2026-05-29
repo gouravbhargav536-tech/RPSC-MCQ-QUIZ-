@@ -20,6 +20,7 @@ export interface Question {
     C: string;
     D: string;
   };
+  is_custom?: boolean;
 }
 
 export type Subject = 
