@@ -317,69 +317,128 @@ function getLocalMockQuestions(config: any): any[] {
   return results;
 }
 
-// Model-agnostic robust retry engine
+// Model-agnostic robust retry engine conforming to Production-Grade Gemini API Reliability standards
 async function callGeminiWithRetryAndFallback(ai: any, prompt: string, responseSchema: any, isObject = false): Promise<string> {
   const modelsToTry = [
-    "gemini-3.5-flash",
-    "gemini-flash-latest",
-    "gemini-3.1-flash-lite"
+    "gemini-1.5-flash",
+    "gemini-1.5-flash-8b",
+    "gemini-1.5-pro",
+    "gemini-pro"
   ];
-  
+
+  let currentModelIndex = 0;
+  let retryCount = 0;
+  const maxRetries = 3;
+  const retryDelays = [2000, 5000, 10000];
   let lastError: any = null;
-  
-  for (let i = 0; i < modelsToTry.length; i++) {
-    const model = modelsToTry[i];
-    console.log(`[GENERATOR] Try model: ${model} (Attempt ${i + 1}/${modelsToTry.length})`);
-    
+
+  while (retryCount <= maxRetries && currentModelIndex < modelsToTry.length) {
+    const modelName = modelsToTry[currentModelIndex];
+    console.log(`[GENERATOR] Enterprise AI quiz generation attempt with model: ${modelName} (Retry: ${retryCount}/${maxRetries})`);
+
     try {
-      if (i > 0) {
-        const delay = 1000 * i;
-        await new Promise(r => setTimeout(r, delay));
-      }
-      
       let timedOut = false;
       const timeoutPromise = new Promise((_, reject) => {
         setTimeout(() => {
           timedOut = true;
-          reject(new Error(`Timeout limits exceeded for model ${model}`));
+          reject(new Error(`Timeout limits exceeded for model ${modelName}`));
         }, 30000);
       });
-      
+
+      // Assemble config matching model capabilities
+      const configObj: any = {
+        responseMimeType: "application/json"
+      };
+
+      if (modelName !== "gemini-pro") {
+        configObj.responseSchema = responseSchema;
+      }
+
       const generationPromise = ai.models.generateContent({
-        model: model,
+        model: modelName,
         contents: prompt,
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: responseSchema
-        }
+        config: configObj
       });
-      
+
       const response: any = await Promise.race([generationPromise, timeoutPromise]);
       if (timedOut) {
-        throw new Error(`Execution hung during generateContent with model ${model}`);
+        throw new Error(`Execution hung during generateContent with model ${modelName}`);
       }
+
+      // Safely extract text following enterprise guideline:
+      // data?.candidates?.[0]?.content?.parts?.[0]?.text
+      let text = response?.text;
       
-      const text = response?.text;
+      // Attempt alternative extraction mapping
+      if (!text && response) {
+        text = response?.candidates?.[0]?.content?.parts?.[0]?.text;
+      }
+
+      // If empty: retry automatically
       if (!text || !text.trim()) {
-        throw new Error(`Empty response string retrieved from ${model}`);
+        throw new Error("Empty AI response received.");
       }
-      
+
       return text;
+
     } catch (err: any) {
       lastError = err;
-      const status = err?.status || err?.response?.status || err?.response?.data?.error?.status;
-      const message = (err?.message || "").toLowerCase();
-      console.warn(`[GENERATOR] Attempt ${i + 1} with ${model} failed. Error:`, err?.message || err);
       
-      // Stop attempting other models if this is a strict credential problem
+      // Stop attempts early on authentication/authorization errors
+      const status = err?.status || err?.response?.status || err?.response?.data?.error?.status || err?.response?.data?.error?.code || err?.code;
+      const message = (err?.message || "").toLowerCase();
+      
       if (status === 401 || status === 403 || message.includes("unauthorized") || message.includes("api_key_invalid") || message.includes("invalid api key")) {
-        console.error("[GENERATOR] Credentials invalid. Breaking retry chain immediately.");
+        console.error("[GENERATOR] Authorization failure. Aborting retry loop.");
         break;
+      }
+
+      // Check for 503 UNAVAILABLE or demand spike
+      const is503 = (status === 503 || 
+                     message.includes("503") || 
+                     message.includes("unavailable") || 
+                     message.includes("experiencing high demand") || 
+                     message.includes("resourceexhausted") ||
+                     err?.status === "UNAVAILABLE" ||
+                     (err?.response?.data?.error?.status === "UNAVAILABLE"));
+
+      if (is503) {
+        console.error("[GEMINI_503]", err);
+        console.warn("[GENERATOR] OVERLOAD WARNING: Model is overloaded or experiencing heavy spikes.");
+        
+        if (retryCount < maxRetries) {
+          const delay = retryDelays[retryCount % retryDelays.length];
+          console.log(`[GENERATOR] Backing off for ${delay}ms...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          
+          console.log("[GENERATOR] Switching Gemini model...");
+          currentModelIndex = (currentModelIndex + 1) % modelsToTry.length;
+          
+          retryCount++;
+          console.log("[GENERATOR] Retrying request...");
+          continue;
+        } else {
+          break;
+        }
+      } else {
+        console.warn(`[GENERATOR] Transient error on ${modelName}:`, err?.message || err);
+        
+        if (retryCount < maxRetries) {
+          const delay = retryDelays[retryCount % retryDelays.length];
+          console.log(`[GENERATOR] Backing off for ${delay}ms before retry.`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          
+          retryCount++;
+          console.log("[GENERATOR] Retrying request...");
+          continue;
+        } else {
+          break;
+        }
       }
     }
   }
-  
-  throw lastError || new Error("All fallback generation models exhausted.");
+
+  throw lastError || new Error("All fallback models and retries exhausted.");
 }
 
 // Maps and handles standard Gemini response error status specifically for user friendly delivery

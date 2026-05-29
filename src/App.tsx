@@ -139,6 +139,25 @@ export default function App() {
   const [customInputPrompt, setCustomInputPrompt] = useState('');
   const [injecting, setInjecting] = useState(false);
   const [showSyncLogConsole, setShowSyncLogConsole] = useState(true);
+  const [loadingSubtext, setLoadingSubtext] = useState("Matching Exam Patterns");
+
+  useEffect(() => {
+    let timer1: NodeJS.Timeout;
+    let timer2: NodeJS.Timeout;
+    if (loading) {
+      setLoadingSubtext("Matching Exam Patterns");
+      timer1 = setTimeout(() => {
+        setLoadingSubtext("AI servers are currently busy. Retrying automatically...");
+      }, 4000);
+      timer2 = setTimeout(() => {
+        setLoadingSubtext("Retrying with fallback models, thank you for waiting...");
+      }, 12000);
+    }
+    return () => {
+      clearTimeout(timer1);
+      clearTimeout(timer2);
+    };
+  }, [loading]);
 
   // Optional Developer Mode click-bypass variables
   const [developerMode, setDeveloperMode] = useState(false);
@@ -561,7 +580,8 @@ export default function App() {
         }
       });
     } catch (error: any) {
-      showError(error?.message || "Error generating quiz. Please try again.");
+      console.error("[GENERATOR] Permanent failure after retry sequence:", error);
+      showError("AI service is temporarily overloaded. Please try again in a moment.");
       setScreen('SETUP');
     } finally {
       setLoading(false);
@@ -1057,7 +1077,7 @@ export default function App() {
                         <div className="flex flex-col items-center py-20 text-center">
                           <Loader2 size={48} className="text-primary animate-spin mb-6" />
                           <h3 className="text-2xl font-display text-main italic">Assembling MCQs...</h3>
-                          <p className="text-slate-500 text-sm mt-2 uppercase tracking-widest font-bold">Matching Exam Patterns</p>
+                          <p className="text-slate-500 text-sm mt-2 uppercase tracking-widest font-bold transition-all duration-300 max-w-md px-4">{loadingSubtext}</p>
                         </div>
                       ) : (
                         <>
