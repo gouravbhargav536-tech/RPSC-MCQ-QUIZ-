@@ -1,0 +1,46 @@
+{
+  "entities": {
+    "Session": {
+      "title": "Session",
+      "description": "A live-syncing active exam/quiz study session across Android and React",
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "description": "The unique session identifier"
+        },
+        "operation": {
+          "type": "string",
+          "description": "Active sync operation tracking descriptor"
+        },
+        "current_index": {
+          "type": "integer",
+          "description": "The current question index active in the session"
+        },
+        "sync_status": {
+          "type": "string",
+          "description": "Online real-time status of the stream"
+        },
+        "last_updated": {
+          "type": "integer",
+          "description": "Epoch timestamp of the last write"
+        },
+        "active_question_id": {
+          "type": "string",
+          "description": "Identifier of the currently loaded question"
+        },
+        "is_custom": {
+          "type": "boolean",
+          "description": "Indicates if the active question is dynamic/custom"
+        }
+      },
+      "required": ["session_id", "operation", "current_index", "sync_status"]
+    }
+  },
+  "firestore": {
+    "/sessions/{sessionId}": {
+      "schema": "Session",
+      "description": "Registry for active real-time exam engineering sessions"
+    }
+  }
+}

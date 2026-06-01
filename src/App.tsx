@@ -36,11 +36,15 @@ import {
   Compass,
   User as UserIcon,
   Menu,
-  X
+  X,
+  Smartphone,
+  Copy
 } from 'lucide-react';
 import { generateQuizQuestions, formatCustomQuestionToMcq } from './services/geminiService';
 import { Question, QuizConfig, Subject, Difficulty, Language, ThemeType, User, ExamPattern } from './types';
 import { mockAuth } from './services/authService';
+import { doc, setDoc } from 'firebase/firestore';
+import { db } from './services/firebase';
 import IntroScreen from './components/IntroScreen';
 import AuthScreen from './components/AuthScreen';
 import RiverMap from './components/RiverMap';
@@ -49,10 +53,17 @@ import SetupPanel from './components/SetupPanel';
 import RulesPanel from './components/RulesPanel';
 import ResultsPanel from './components/ResultsPanel';
 import { useFeedback } from './hooks/useFeedback';
-import { mainActivityCode, quizRepositoryCode, buildGradleCode, manifestCode, devPlanCode } from './services/androidCode';
+import { mainActivityCode, quizRepositoryCode, buildGradleCode, manifestCode, retrofitClientCode, geminiApiServiceCode, devPlanCode } from './services/androidCode';
 
 export default function App() {
   const [screen, setScreen] = useState<'LANDING' | 'INTRO' | 'AUTH' | 'HOME' | 'SETUP' | 'RULES' | 'QUIZ' | 'RESULTS'>('LANDING');
+  const [errorToast, setErrorToast] = useState<{ show: boolean; message: string }>({ show: false, message: "" });
+  const showError = (msg: string) => {
+    setErrorToast({ show: true, message: msg });
+    setTimeout(() => {
+      setErrorToast(prev => ({ ...prev, show: false }));
+    }, 6000);
+  };
   const [loading, setLoading] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [theme, setTheme] = useState<ThemeType>('geometric');
@@ -129,9 +140,30 @@ export default function App() {
     }
   });
   const [showInjectModal, setShowInjectModal] = useState(false);
+  const [showFormatModal, setShowFormatModal] = useState(false);
+  const [copySuccess, setCopySuccess] = useState(false);
   const [customInputPrompt, setCustomInputPrompt] = useState('');
   const [injecting, setInjecting] = useState(false);
   const [showSyncLogConsole, setShowSyncLogConsole] = useState(true);
+  const [loadingSubtext, setLoadingSubtext] = useState("Matching Exam Patterns");
+
+  useEffect(() => {
+    let timer1: NodeJS.Timeout;
+    let timer2: NodeJS.Timeout;
+    if (loading) {
+      setLoadingSubtext("Matching Exam Patterns");
+      timer1 = setTimeout(() => {
+        setLoadingSubtext("AI servers are currently busy. Retrying automatically...");
+      }, 4000);
+      timer2 = setTimeout(() => {
+        setLoadingSubtext("Retrying with fallback models, thank you for waiting...");
+      }, 12000);
+    }
+    return () => {
+      clearTimeout(timer1);
+      clearTimeout(timer2);
+    };
+  }, [loading]);
 
   // Optional Developer Mode click-bypass variables
   const [developerMode, setDeveloperMode] = useState(false);
@@ -168,9 +200,98 @@ export default function App() {
 
   // Android Hub state parameters
   const [showKotlinHub, setShowKotlinHub] = useState(false);
-  const [kotlinTab, setKotlinTab] = useState<'MAIN' | 'REP' | 'BUILD' | 'MAN' | 'DOC'>('MAIN');
+  const [kotlinTab, setKotlinTab] = useState<'MAIN' | 'REP' | 'NET_CLI' | 'NET_SERV' | 'BUILD' | 'MAN' | 'DOC'>('MAIN');
 
   const { feedback } = useFeedback();
+
+  const syncSessionStateToFirestore = async (
+    sessionId: string,
+    operation: 'RESUME_SESSION' | 'POPUP_INJECT' | 'LOAD_CACHE' | 'NEW_GENERATION' | 'CONNECTING' | 'IDLE',
+    index: number,
+    activeQuestion: Question | null,
+    guruMantra: string = "RPSC Core Standard Syllabus Item"
+  ) => {
+    const quiz_data = activeQuestion ? {
+      question: activeQuestion.question,
+      options: [
+        activeQuestion.options.A,
+        activeQuestion.options.B,
+        activeQuestion.options.C,
+        activeQuestion.options.D
+      ],
+      correct_answer: activeQuestion.correctAnswer,
+      is_custom: !!activeQuestion.is_custom,
+      guru_mantra: guruMantra
+    } : {
+      question: guruMantra,
+      options: [],
+      correct_answer: "",
+      is_custom: false
+    };
+
+    try {
+      await setDoc(doc(db, 'sessions', sessionId), {
+        session_id: sessionId,
+        operation: operation,
+        current_index: index,
+        sync_status: 'VERIFIED_SYNC',
+        last_updated: Date.now(),
+        active_question_id: activeQuestion?.id || null,
+        is_custom: !!activeQuestion?.is_custom,
+        ui_control: {
+          show_syllabus_grid: false,
+          hud_monitor_visibility: developerMode ? 'VISIBLE' : 'GONE',
+          background_sync_active: true,
+          android_studio_btn_visibility: developerMode ? 'VISIBLE' : 'GONE',
+          is_developer_mode_authenticated: developerMode
+        },
+        quiz_data: quiz_data
+      }, { merge: true });
+
+      setSyncLog({
+        session_id: sessionId,
+        operation: operation,
+        current_index: index,
+        ui_control: {
+          show_syllabus_grid: false,
+          hud_monitor_visibility: developerMode ? 'VISIBLE' : 'GONE',
+          background_sync_active: true,
+          android_studio_btn_visibility: developerMode ? 'VISIBLE' : 'GONE',
+          is_developer_mode_authenticated: developerMode
+        },
+        quiz_data: quiz_data
+      });
+    } catch (err: any) {
+      console.error("Firestore write failure", err);
+      setSyncLog({
+        session_id: sessionId,
+        operation: operation,
+        current_index: index,
+        ui_control: {
+          show_syllabus_grid: false,
+          hud_monitor_visibility: developerMode ? 'VISIBLE' : 'GONE',
+          background_sync_active: false,
+          android_studio_btn_visibility: developerMode ? 'VISIBLE' : 'GONE',
+          is_developer_mode_authenticated: developerMode
+        },
+        quiz_data: quiz_data
+      });
+      // Formalize the error object and throw matching the mandatory FirestoreErrorInfo schema
+      const errInfo = {
+        error: err instanceof Error ? err.message : String(err),
+        operationType: 'write',
+        path: `sessions/${sessionId}`,
+        authInfo: {
+          userId: null,
+          email: null,
+          emailVerified: false,
+          isAnonymous: false,
+          providerInfo: []
+        }
+      };
+      throw new Error(JSON.stringify(errInfo));
+    }
+  };
 
   // Check for saved quiz on mount
   useEffect(() => {
@@ -216,30 +337,14 @@ export default function App() {
             setScreen('QUIZ');
             
             // Set sync operations logs to load from exact state (RESUME_SESSION)
-            setSyncLog({
-              session_id: `SES-${Date.now().toString().slice(-4)}`,
-              operation: 'RESUME_SESSION',
-              current_index: data.currentIndex,
-              ui_control: {
-                show_syllabus_grid: false,
-                hud_monitor_visibility: developerMode ? 'VISIBLE' : 'GONE',
-                background_sync_active: true,
-                android_studio_btn_visibility: developerMode ? 'VISIBLE' : 'GONE',
-                is_developer_mode_authenticated: developerMode
-              },
-              quiz_data: {
-                question: data.questions[data.currentIndex]?.question || "",
-                options: [
-                  data.questions[data.currentIndex]?.options.A || "",
-                  data.questions[data.currentIndex]?.options.B || "",
-                  data.questions[data.currentIndex]?.options.C || "",
-                  data.questions[data.currentIndex]?.options.D || ""
-                ],
-                correct_answer: data.questions[data.currentIndex]?.correctAnswer || "A",
-                is_custom: !!data.questions[data.currentIndex]?.is_custom,
-                guru_mantra: "Syllabus state recovered seamlessly."
-              }
-            });
+            const sesId = `SES-${Date.now().toString().slice(-4)}`;
+            syncSessionStateToFirestore(
+              sesId,
+              'RESUME_SESSION',
+              data.currentIndex,
+              data.questions[data.currentIndex],
+              "Syllabus state recovered seamlessly."
+            );
             return;
           }
         }
@@ -481,30 +586,13 @@ export default function App() {
 
           // Configure Sync Log output schema
           const sessionId = `SES-CACHE-${Date.now().toString().slice(-4)}`;
-          setSyncLog({
-            session_id: sessionId,
-            operation: 'LOAD_CACHE',
-            current_index: 0,
-            ui_control: {
-              show_syllabus_grid: false,
-              hud_monitor_visibility: developerMode ? 'VISIBLE' : 'GONE',
-              background_sync_active: true,
-              android_studio_btn_visibility: developerMode ? 'VISIBLE' : 'GONE',
-              is_developer_mode_authenticated: developerMode
-            },
-            quiz_data: {
-              question: cachedQuestions[0].question,
-              options: [
-                cachedQuestions[0].options.A,
-                cachedQuestions[0].options.B,
-                cachedQuestions[0].options.C,
-                cachedQuestions[0].options.D
-              ],
-              correct_answer: cachedQuestions[0].correctAnswer,
-              is_custom: !!cachedQuestions[0].is_custom,
-              guru_mantra: "Syllabus cached content loaded."
-            }
-          });
+          syncSessionStateToFirestore(
+            sessionId,
+            'LOAD_CACHE',
+            0,
+            cachedQuestions[0],
+            "Syllabus cached content loaded."
+          );
 
           setLoading(false);
           feedback('success');
@@ -529,42 +617,27 @@ export default function App() {
 
       // Configure Sync Log output schema
       const sessionId = `SES-NEW-${Date.now().toString().slice(-4)}`;
-      setSyncLog({
-        session_id: sessionId,
-        operation: 'NEW_GENERATION',
-        current_index: 0,
-        ui_control: {
-          show_syllabus_grid: false,
-          hud_monitor_visibility: developerMode ? 'VISIBLE' : 'GONE',
-          background_sync_active: true,
-          android_studio_btn_visibility: developerMode ? 'VISIBLE' : 'GONE',
-          is_developer_mode_authenticated: developerMode
-        },
-        quiz_data: {
-          question: generatedQuestions[0].question,
-          options: [
-            generatedQuestions[0].options.A,
-            generatedQuestions[0].options.B,
-            generatedQuestions[0].options.C,
-            generatedQuestions[0].options.D
-          ],
-          correct_answer: generatedQuestions[0].correctAnswer,
-          is_custom: !!generatedQuestions[0].is_custom,
-          guru_mantra: "Fresh AI generation complete."
-        }
-      });
-    } catch (error) {
-      alert("Error generating quiz. Please try again.");
+      syncSessionStateToFirestore(
+        sessionId,
+        'NEW_GENERATION',
+        0,
+        generatedQuestions[0],
+        "Fresh AI generation complete."
+      );
+    } catch (error: any) {
+      console.error("[GENERATOR] Permanent failure after retry sequence:", error);
+      showError("AI service is temporarily overloaded. Please try again in a moment.");
       setScreen('SETUP');
     } finally {
       setLoading(false);
     }
   };
 
-  // Synchronically update Firestore State Sync Monitor
+  // Synchronically update Firestore State Sync Monitor on question index shifts
   useEffect(() => {
     if (screen === 'QUIZ' && questions.length > 0 && questions[currentIndex]) {
-      let activeOp: 'RESUME_SESSION' | 'POPUP_INJECT' | 'LOAD_CACHE' | 'NEW_GENERATION' = 'NEW_GENERATION';
+      const sessionId = syncLog?.session_id || `SES-${Date.now().toString().slice(-4)}`;
+      let activeOp: 'RESUME_SESSION' | 'POPUP_INJECT' | 'LOAD_CACHE' | 'NEW_GENERATION' | 'IDLE' | 'CONNECTING' = 'NEW_GENERATION';
       
       if (isBookmarksReview) {
         activeOp = 'LOAD_CACHE';
@@ -574,32 +647,17 @@ export default function App() {
         activeOp = syncLog.operation;
       }
       
-      setSyncLog(prev => ({
-        session_id: prev?.session_id || `SES-${Date.now().toString().slice(-4)}`,
-        operation: activeOp,
-        current_index: currentIndex,
-        ui_control: {
-          show_syllabus_grid: false,
-          hud_monitor_visibility: developerMode ? 'VISIBLE' : 'GONE',
-          background_sync_active: true,
-          android_studio_btn_visibility: developerMode ? 'VISIBLE' : 'GONE',
-          is_developer_mode_authenticated: developerMode
-        },
-        quiz_data: {
-          question: questions[currentIndex].question,
-          options: [
-            questions[currentIndex].options.A,
-            questions[currentIndex].options.B,
-            questions[currentIndex].options.C,
-            questions[currentIndex].options.D
-          ],
-          correct_answer: questions[currentIndex].correctAnswer,
-          is_custom: !!questions[currentIndex].is_custom,
-          guru_mantra: isBookmarksReview ? "Scribbled bookmarks review session" : "RPSC Core Standard Syllabus Item"
-        }
-      }));
+      const mantra = isBookmarksReview ? "Scribbled bookmarks review session" : "RPSC Core Standard Syllabus Item";
+      
+      syncSessionStateToFirestore(
+        sessionId,
+        activeOp,
+        currentIndex,
+        questions[currentIndex],
+        mantra
+      );
     }
-  }, [currentIndex, questions, screen, developerMode]);
+  }, [currentIndex]);
 
   const handleSelectAnswer = (answer: string) => {
     if (isAnswered) return;
@@ -648,35 +706,20 @@ export default function App() {
       
       // Log custom sync operation
       const sesId = syncLog?.session_id || `SES-${Date.now().toString().slice(-4)}`;
-      setSyncLog({
-        session_id: sesId,
-        operation: 'POPUP_INJECT',
-        current_index: targetIndex,
-        ui_control: {
-          show_syllabus_grid: false,
-          hud_monitor_visibility: developerMode ? 'VISIBLE' : 'GONE',
-          background_sync_active: true,
-          android_studio_btn_visibility: developerMode ? 'VISIBLE' : 'GONE',
-          is_developer_mode_authenticated: developerMode
-        },
-        quiz_data: {
-          question: newQuestion.question,
-          options: [
-            newQuestion.options.A,
-            newQuestion.options.B,
-            newQuestion.options.C,
-            newQuestion.options.D
-          ],
-          correct_answer: newQuestion.correctAnswer,
-          is_custom: true,
-          guru_mantra: "Custom MCQ formatted and pushed to screen."
-        }
-      });
+      
+      // Write the session payload securely to Firestore and update the sync log
+      await syncSessionStateToFirestore(
+        sesId,
+        'POPUP_INJECT',
+        targetIndex,
+        newQuestion,
+        "Custom MCQ formatted and pushed to screen."
+      );
       
       feedback('success');
-    } catch (e) {
-      console.error(e);
-      alert("Error injecting custom question. Please try again.");
+    } catch (e: any) {
+      console.error("FRONTEND_ERROR: Formatting or Sync failure", e);
+      showError("Error formatting your custom question. Safe offline fallback question loaded.");
     } finally {
       setInjecting(false);
     }
@@ -1050,7 +1093,7 @@ export default function App() {
                         <div className="flex flex-col items-center py-20 text-center">
                           <Loader2 size={48} className="text-primary animate-spin mb-6" />
                           <h3 className="text-2xl font-display text-main italic">Assembling MCQs...</h3>
-                          <p className="text-slate-500 text-sm mt-2 uppercase tracking-widest font-bold">Matching Exam Patterns</p>
+                          <p className="text-slate-500 text-sm mt-2 uppercase tracking-widest font-bold transition-all duration-300 max-w-md px-4">{loadingSubtext}</p>
                         </div>
                       ) : (
                         <>
@@ -1077,6 +1120,14 @@ export default function App() {
 
                               {questions[currentIndex] && (
                                 <div className="flex items-center gap-2 shrink-0">
+                                  <button
+                                    type="button"
+                                    onClick={() => setShowFormatModal(true)}
+                                    className="text-emerald-600 hover:bg-emerald-50 transition-colors px-2.5 py-1.5 bg-white border border-emerald-500/30 rounded-lg cursor-pointer flex items-center justify-center gap-1 shadow-sm shrink-0 font-bold text-[10px] uppercase tracking-wider"
+                                    title="Open clean mobile text formatter"
+                                  >
+                                    <Smartphone size={12} className="text-emerald-600 animate-pulse" /> Format & Copy
+                                  </button>
                                   <button
                                     type="button"
                                     onClick={() => setShowInjectModal(true)}
@@ -1449,6 +1500,36 @@ export default function App() {
               )}
             </AnimatePresence>
 
+            {/* Elegant Floating Error Toast */}
+            <AnimatePresence>
+              {errorToast.show && (
+                <motion.div
+                  initial={{ opacity: 0, y: 50, scale: 0.9 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 20, scale: 0.9 }}
+                  className="fixed bottom-16 left-4 right-4 md:left-auto md:right-8 z-[200] max-w-sm w-full bg-slate-900 border border-red-500/30 backdrop-blur-md rounded-2xl p-4 shadow-2xl flex items-start gap-3 text-red-200"
+                >
+                  <div className="p-2 bg-red-950/80 rounded-xl text-red-400 shrink-0 border border-red-500/20">
+                    <XCircle size={18} className="animate-pulse" />
+                  </div>
+                  <div className="flex-1 text-left">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-red-400 font-mono mb-1">
+                      System Generation Alert
+                    </h4>
+                    <p className="text-[11px] text-slate-300 leading-relaxed">
+                      {errorToast.message}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setErrorToast(prev => ({ ...prev, show: false }))}
+                    className="text-slate-400 hover:text-slate-200 text-xs px-1 hover:bg-slate-800 rounded shrink-0"
+                  >
+                    ✕
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
             {/* Custom Question Injection Modal */}
             <AnimatePresence>
               {showInjectModal && (
@@ -1494,6 +1575,69 @@ export default function App() {
                           </>
                         ) : (
                           'Format & Inject'
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </AnimatePresence>
+
+            {/* Mobile MCQ Format View Modal */}
+            <AnimatePresence>
+              {showFormatModal && questions[currentIndex] && (
+                <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+                  <div className="bg-white rounded-3xl p-6 max-w-lg w-full border border-slate-100 shadow-2xl relative animate-in zoom-in-95 duration-200">
+                    <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2 mb-2 font-display italic">
+                      <Smartphone className="text-emerald-600 animate-bounce" size={20} /> Mobile MCQ Text Formatter
+                    </h3>
+                    <p className="text-xs text-slate-500 mb-4 leading-relaxed">
+                      Below is the question formatted with strict line breaks and spacious vertical double-spacing matching your mobile app guidelines perfectly.
+                    </p>
+                    
+                    <div className="relative bg-slate-50 rounded-2xl border border-slate-100 p-4 font-mono text-xs text-slate-700 whitespace-pre-wrap leading-relaxed max-h-[300px] overflow-y-auto select-all select-text">
+                      <div id="formatted-mcq-content" className="select-text">
+{`Question No. : ${currentIndex + 1}
+
+${questions[currentIndex].question}
+
+a.    ${questions[currentIndex].options.A}
+
+b.    ${questions[currentIndex].options.B}
+
+c.    ${questions[currentIndex].options.C}
+
+d.    ${questions[currentIndex].options.D}`}
+                      </div>
+                    </div>
+                    
+                    <div className="flex justify-end gap-3 mt-6">
+                      <button
+                        type="button"
+                        onClick={() => setShowFormatModal(false)}
+                        className="px-4 py-2 border border-slate-200 hover:bg-slate-50 rounded-xl text-xs font-bold text-slate-500 transition-colors uppercase tracking-wider cursor-pointer"
+                      >
+                        Close
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const text = `Question No. : ${currentIndex + 1}\n\n${questions[currentIndex].question}\n\na.    ${questions[currentIndex].options.A}\n\nb.    ${questions[currentIndex].options.B}\n\nc.    ${questions[currentIndex].options.C}\n\nd.    ${questions[currentIndex].options.D}`;
+                          navigator.clipboard.writeText(text);
+                          feedback('success');
+                          setCopySuccess(true);
+                          setTimeout(() => setCopySuccess(false), 2000);
+                        }}
+                        className="px-5 py-2 bg-emerald-600 text-white hover:bg-emerald-500 rounded-xl text-xs font-bold transition-colors uppercase tracking-wider flex items-center gap-2 cursor-pointer shadow-md shadow-emerald-600/25"
+                      >
+                        {copySuccess ? (
+                          <>
+                            <CheckCircle2 size={12} className="text-white animate-pulse" /> Copied!
+                          </>
+                        ) : (
+                          <>
+                            <Copy size={12} /> Copy Formatted Text
+                          </>
                         )}
                       </button>
                     </div>
@@ -1646,18 +1790,15 @@ export default function App() {
                                 setScreen('HOME');
                                 setShowKotlinHub(false);
                                 
-                                // Set Sync Log to sudden crash exit
-                                setSyncLog({
-                                  session_id: syncLog?.session_id || `SES-AND-${Date.now().toString().slice(-4)}`,
-                                  operation: 'IDLE',
-                                  current_index: currentIndex,
-                                  quiz_data: {
-                                    question: "Sudden Container Terminated! State flushed securely to disk.",
-                                    options: [],
-                                    correct_answer: "",
-                                    is_custom: false
-                                  }
-                                });
+                                // Set Sync Log to sudden crash exit via Firestore
+                                const sesId = syncLog?.session_id || `SES-AND-${Date.now().toString().slice(-4)}`;
+                                syncSessionStateToFirestore(
+                                  sesId,
+                                  'IDLE',
+                                  currentIndex,
+                                  null,
+                                  "Sudden Container Terminated! State flushed securely to disk."
+                                );
                                 alert("🚨 NATIVE PROCESS KILLED! Exit state captured successfully. The candidate was returned to the Home Screen. Click 'Resume Saved Exam' inside the Session Notebook cards to test Automated Resumption!");
                               }}
                               className="w-full py-2.5 px-4 bg-red-950 border border-red-500/30 hover:bg-red-900/30 text-red-200 text-xs font-bold font-mono rounded-xl transition-all cursor-pointer flex items-center justify-center gap-2"
@@ -1733,6 +1874,8 @@ export default function App() {
                           {[
                             { key: 'MAIN', label: 'MainActivity.kt' },
                             { key: 'REP', label: 'QuizRepository.kt' },
+                            { key: 'NET_CLI', label: 'RetrofitClient.kt' },
+                            { key: 'NET_SERV', label: 'GeminiApiService.kt' },
                             { key: 'BUILD', label: 'build.gradle' },
                             { key: 'MAN', label: 'AndroidManifest.xml' },
                             { key: 'DOC', label: 'Firebase Dev Plan' }
@@ -1763,6 +1906,8 @@ export default function App() {
                               let copyText = "";
                               if (kotlinTab === 'MAIN') copyText = mainActivityCode;
                               else if (kotlinTab === 'REP') copyText = quizRepositoryCode;
+                              else if (kotlinTab === 'NET_CLI') copyText = retrofitClientCode;
+                              else if (kotlinTab === 'NET_SERV') copyText = geminiApiServiceCode;
                               else if (kotlinTab === 'BUILD') copyText = buildGradleCode;
                               else if (kotlinTab === 'MAN') copyText = manifestCode;
                               else copyText = devPlanCode;
@@ -1778,6 +1923,8 @@ export default function App() {
                           <pre className="whitespace-pre-wrap select-all">
                             {kotlinTab === 'MAIN' && mainActivityCode}
                             {kotlinTab === 'REP' && quizRepositoryCode}
+                            {kotlinTab === 'NET_CLI' && retrofitClientCode}
+                            {kotlinTab === 'NET_SERV' && geminiApiServiceCode}
                             {kotlinTab === 'BUILD' && buildGradleCode}
                             {kotlinTab === 'MAN' && manifestCode}
                             {kotlinTab === 'DOC' && devPlanCode}

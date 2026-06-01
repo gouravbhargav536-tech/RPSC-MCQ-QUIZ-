@@ -152,6 +152,12 @@ dependencies {
     implementation 'androidx.compose.material3:material3'
     implementation platform('com.google.firebase:firebase-bom:32.3.1')
     implementation 'com.google.firebase:firebase-firestore-ktx'
+
+    // Retrofit & OkHttp & Gson for stable Google AI Gemini REST Integration
+    implementation 'com.squareup.retrofit2:retrofit:2.9.0'
+    implementation 'com.squareup.retrofit2:converter-gson:2.9.0'
+    implementation 'com.squareup.okhttp3:okhttp:4.11.0'
+    implementation 'com.google.code.gson:gson:2.10.1'
 }`;
 
 export const manifestCode = `<?xml version="1.0" encoding="utf-8"?>
@@ -175,6 +181,81 @@ export const manifestCode = `<?xml version="1.0" encoding="utf-8"?>
         </activity>
     </application>
 </manifest>`;
+
+export const retrofitClientCode = `package com.rpsc.quizapp.network
+
+import retrofit2.Retrofit
+import retrofit2.converter.gson.GsonConverterFactory
+
+object RetrofitClient {
+    private const val BASE_URL = "https://generativelanguage.googleapis.com/"
+
+    // Supported Google Gemini Production IDs: "gemini-1.5-flash" and "gemini-1.5-pro"
+    val SUPPORTED_MODELS = arrayOf("gemini-1.5-flash", "gemini-1.5-pro")
+
+    val service: GeminiApiService by lazy {
+        Retrofit.Builder()
+            .baseUrl(BASE_URL)
+            .addConverterFactory(GsonConverterFactory.create())
+            .build()
+            .create(GeminiApiService::class.java)
+    }
+}`;
+
+export const geminiApiServiceCode = `package com.rpsc.quizapp.network
+
+import retrofit2.Call
+import retrofit2.http.Body
+import retrofit2.http.POST
+import retrofit2.http.Path
+import retrofit2.http.Query
+
+// Models matching the Google Gemini JSON payload syntax
+data class GeminiRequest(
+    val contents: List<Content>,
+    val generationConfig: GenerationConfig? = null
+)
+
+data class Content(
+    val parts: List<Part>
+)
+
+data class Part(
+    val text: String
+)
+
+data class GenerationConfig(
+    val responseMimeType: String? = null
+)
+
+data class GeminiResponse(
+    val candidates: List<Candidate>? = null
+)
+
+data class Candidate(
+    val content: ResponseContent? = null
+)
+
+data class ResponseContent(
+    val parts: List<ResponsePart>? = null
+)
+
+data class ResponsePart(
+    val text: String? = null
+)
+
+interface GeminiApiService {
+    /**
+     * Standard Google AI stable pattern:
+     * POST https://generativelanguage.googleapis.com/v1/models/{model}:generateContent?key={key}
+     */
+    @POST("v1/models/{model}:generateContent")
+    fun generateContent(
+        @Path("model") model: String,
+        @Query("key") apiKey: String,
+        @Body request: GeminiRequest
+    ): Call<GeminiResponse>
+}`;
 
 export const devPlanCode = `===========================================================
 🔥 RPSC MCQ NATIVE KOTLIN ANDROID CODENAME PLATFORM DEV DEV
@@ -204,4 +285,10 @@ export const devPlanCode = `====================================================
    - Click/Tap Bypass: 5 rapid clicks on the 'AI ENGINE | RPSC OPTIMIZED' top-bar 
      text triggers the hidden debug mode to toggle the console HUD visibility, 
      enabling live stream validation on-the-go.
+
+6. Stable REST integration targeting officially supported Google Gemini Production IDs:
+   - "gemini-1.5-flash"
+   - "gemini-1.5-pro"
+   - Calls standard Google AI stable pattern appended with ':generateContent' and the dynamic API key query parameter:
+     https://generativelanguage.googleapis.com/v1/models/{model}:generateContent?key={apiKey}
 `;
