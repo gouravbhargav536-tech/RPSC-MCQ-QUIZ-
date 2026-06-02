@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion } from 'motion/react';
-import { Trophy, Clock } from 'lucide-react';
+import { Trophy, Clock, BrainCircuit, CheckCircle2, Info, BookOpen } from 'lucide-react';
 import { Question, QuizConfig, ThemeType } from '../types';
 
 interface ResultsPanelProps {
@@ -14,6 +14,7 @@ interface ResultsPanelProps {
   theme: ThemeType;
   handleStartQuiz: () => void;
   setScreen: (screenName: any) => void;
+  userAnswers: (string | null)[];
 }
 
 export default function ResultsPanel({
@@ -26,7 +27,8 @@ export default function ResultsPanel({
   formatTime,
   theme,
   handleStartQuiz,
-  setScreen
+  setScreen,
+  userAnswers
 }: ResultsPanelProps) {
   const successRate = questions.length > 0 
     ? Math.round((getScore() / questions.length) * 100) 
@@ -83,7 +85,7 @@ export default function ResultsPanel({
          </p>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-2 gap-3 mb-8">
          <button 
            type="button"
            onClick={handleStartQuiz}
@@ -98,6 +100,115 @@ export default function ResultsPanel({
          >
            Return to Library
          </button>
+      </div>
+
+      {/* Review Section */}
+      <div className="mt-8 border-t border-border-theme pt-6">
+        <h3 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-4">
+          Itemized Answer Sheet & Explanations {(config.feedbackMode || 'Instant Feedback') === 'Submit at End' && "(Submit at End Mode)"}
+        </h3>
+        
+        <div className="space-y-6">
+          {questions.map((question, index) => {
+            const userAnswer = userAnswers[index];
+            const isCorrect = userAnswer === question.correctAnswer;
+            const isSkipped = userAnswer === 'SKIPPED' || userAnswer === null;
+
+            return (
+              <div key={question.id || index} className="border border-border-theme bg-[var(--card-bg)] p-5 rounded-none space-y-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="space-y-1">
+                    <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">
+                      Question {index + 1}
+                    </span>
+                    <h4 className="text-sm font-semibold text-main italic">
+                      {question.question}
+                    </h4>
+                  </div>
+                  <span className={`px-2 py-1 text-[9px] font-bold uppercase tracking-widest ${
+                    isCorrect 
+                      ? 'bg-green-100 text-green-800' 
+                      : isSkipped 
+                        ? 'bg-slate-100 text-slate-500' 
+                        : 'bg-red-100 text-red-800'
+                  }`}>
+                    {isCorrect ? 'Correct' : isSkipped ? 'Skipped' : 'Incorrect'}
+                  </span>
+                </div>
+
+                {/* Options list */}
+                <div className="grid grid-cols-1 gap-2.5">
+                  {Object.entries(question.options).map(([key, value]) => {
+                    const optionCorrect = key === question.correctAnswer;
+                    const optionSelected = key === userAnswer;
+                    
+                    let bgStyle = "bg-white border-slate-200";
+                    let textStyle = "text-slate-700";
+                    let prefixBg = "bg-slate-100 text-slate-500";
+
+                    if (optionCorrect) {
+                      bgStyle = "bg-green-50 border-green-300 ring-1 ring-green-200";
+                      textStyle = "text-green-950 font-semibold";
+                      prefixBg = "bg-green-500 text-white";
+                    } else if (optionSelected && !optionCorrect) {
+                      bgStyle = "bg-red-50 border-red-350 ring-1 ring-red-200";
+                      textStyle = "text-red-950 font-semibold";
+                      prefixBg = "bg-red-500 text-white";
+                    } else if (optionSelected && optionCorrect) {
+                      bgStyle = "bg-green-50 border-green-350 ring-1 ring-green-200";
+                      textStyle = "text-green-950 font-semibold";
+                      prefixBg = "bg-green-500 text-white";
+                    }
+
+                    return (
+                      <div key={key} className={`border p-2.5 flex items-center gap-3 text-xs rounded-none ${bgStyle}`}>
+                        <span className={`w-6 h-6 shrink-0 rounded-md font-bold flex items-center justify-center text-[10px] ${prefixBg}`}>
+                          {key}
+                        </span>
+                        <span className={textStyle}>{value}</span>
+                        {optionCorrect && (
+                          <span className="text-[10px] text-green-700 font-bold ml-auto uppercase tracking-tighter">Correct Option</span>
+                        )}
+                        {optionSelected && !optionCorrect && (
+                          <span className="text-[10px] text-red-700 font-bold ml-auto uppercase tracking-tighter">Your Choice</span>
+                        )}
+                        {optionSelected && optionCorrect && (
+                          <span className="text-[10px] text-green-700 font-bold ml-auto uppercase tracking-tighter">Your Choice (Correct)</span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Explanations */}
+                <div className="pt-3 border-t border-dashed border-slate-200 space-y-2 text-xs">
+                  {question.teacherInsight && (
+                    <div className="bg-amber-50/50 p-3 rounded text-slate-800 border-l-2 border-amber-500/50">
+                      <strong className="text-amber-700 block text-[9px] uppercase tracking-wider mb-0.5">Guruji's Smart Tip (Guru-Mantra)</strong>
+                      <p className="italic font-medium leading-relaxed">{question.teacherInsight}</p>
+                    </div>
+                  )}
+
+                  <div className="bg-slate-50 p-3 rounded text-slate-600 border-l-2 border-slate-400/30">
+                    <strong className="text-slate-500 block text-[9px] uppercase tracking-wider mb-0.5">Explanatory Facts</strong>
+                    <p className="leading-relaxed">{question.explanation}</p>
+                  </div>
+
+                  {question.extraFacts && question.extraFacts.length > 0 && (
+                    <div className="bg-indigo-50/50 p-3 rounded text-indigo-900 border-l-2 border-indigo-500/50">
+                      <strong className="text-indigo-600 block text-[9px] uppercase tracking-wider mb-0.5">Extra Facts</strong>
+                      <ul className="list-disc pl-4 space-y-1 mt-1 font-medium">
+                        {question.extraFacts.map((fact, i) => (
+                          <li key={i}>{fact}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
     </motion.div>
   );

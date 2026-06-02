@@ -437,7 +437,86 @@ async function callGeminiWithRetryAndFallback(apiKeys: string[], prompt: string,
     }
   }
 
+  // Robust absolute last-mile backup using OpenRouter if configured
+  if (process.env.OPENROUTER_API_KEY) {
+    try {
+      console.warn("[GENERATOR] Gemini SDK attempts exhausted. Activating OpenRouter robust fallback engine...");
+      const orResult = await callOpenRouterFallback(prompt, responseSchema, systemInstruction);
+      return orResult;
+    } catch (orErr: any) {
+      console.error("[GENERATOR] OpenRouter fallback ALSO failed. Details:", orErr?.message || orErr);
+    }
+  }
+
   throw lastError || new Error("All fallback models, retries, and API keys exhausted.");
+}
+
+async function callOpenRouterFallback(prompt: string, responseSchema: any, systemInstruction?: string): Promise<string> {
+  const openRouterKey = process.env.OPENROUTER_API_KEY;
+  if (!openRouterKey) {
+    throw new Error("OpenRouter API key is not configured.");
+  }
+
+  console.log("[GENERATOR] Attempting OpenRouter Fallback...");
+
+  const models = [
+    "google/gemini-2.5-flash-lite",
+    "google/gemini-2.5-flash",
+    "google/gemini-2.5-pro",
+    "openrouter/free"
+  ];
+
+  let lastOpenRouterError: any = null;
+
+  for (const model of models) {
+    try {
+      console.log(`[GENERATOR] Making request via OpenRouter with model ${model}...`);
+
+      const payload: any = {
+        model,
+        messages: []
+      };
+
+      if (systemInstruction) {
+        payload.messages.push({ role: "system", content: systemInstruction });
+      }
+
+      payload.messages.push({ role: "user", content: prompt });
+
+      if (responseSchema) {
+        payload.response_format = { type: "json_object" };
+      }
+
+      const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${openRouterKey}`,
+          "Content-Type": "application/json",
+          "HTTP-Referer": "https://ai.studio/build",
+          "X-Title": "RPSC Quiz Bot"
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        throw new Error(`OpenRouter returned status ${response.status}: ${await response.text()}`);
+      }
+
+      const data: any = await response.json();
+      const content = data?.choices?.[0]?.message?.content;
+      if (content && content.trim()) {
+        console.log(`[GENERATOR] Successful response retrieved from OpenRouter model ${model}!`);
+        return content;
+      } else {
+        throw new Error("Empty content received from OpenRouter API.");
+      }
+    } catch (err: any) {
+      console.error(`[GENERATOR] OpenRouter model ${model} failed:`, err?.message || err);
+      lastOpenRouterError = err;
+    }
+  }
+
+  throw lastOpenRouterError || new Error("All OpenRouter backup models failed.");
 }
 
 // Maps and handles standard Gemini response error status specifically for user friendly delivery
@@ -763,6 +842,163 @@ Follow these rigid directives:
       
       return res.json({ question: fallbackMCQ });
     }
+  });
+
+  // Diagnostic API Endpoint to check API keys health
+  app.post("/api/check-keys-status", async (req, res) => {
+    console.log("[DIAGNOSTIC] Checking API keys status and connectivity...");
+    
+    const primaryKey = process.env.GEMINI_API_KEY;
+    const backupKey = process.env.BACKUP_GEMINI_API_KEY || process.env.GEMINI_API_KEY_BACKUP;
+    const openRouterKey = process.env.OPENROUTER_API_KEY;
+
+    const results: any = {
+      primaryGemini: { configured: false, working: false, details: "Not configured in Environment", error: null },
+      backupGemini: { configured: false, working: false, details: "Not configured in Environment", error: null },
+      openRouter: { configured: false, working: false, details: "Not configured in Environment", error: null }
+    };
+
+    // 1. Primary Key Check
+    if (primaryKey) {
+      results.primaryGemini.configured = true;
+      const testModels = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"];
+      let primaryTestedOk = false;
+      let primaryLastErr: any = null;
+      let primarySuccessfulModel = "";
+      let primaryRespContent = "";
+
+      for (const model of testModels) {
+        try {
+          console.log(`[DIAGNOSTIC] Calling primary Gemini API key using model ${model}...`);
+          const ai = new GoogleGenAI({
+            apiKey: primaryKey,
+            httpOptions: { headers: { 'User-Agent': 'aistudio-build-diagnostics' } }
+          });
+          const resp = await ai.models.generateContent({
+            model,
+            contents: "Echo: Hello diagnostics!"
+          });
+          const text = resp?.text || resp?.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (text && text.trim()) {
+            primaryTestedOk = true;
+            primarySuccessfulModel = model;
+            primaryRespContent = text.trim();
+            break;
+          }
+        } catch (err: any) {
+          console.warn(`[DIAGNOSTIC] Model ${model} test failed for primary key:`, err?.message || err);
+          primaryLastErr = err;
+        }
+      }
+
+      if (primaryTestedOk) {
+        results.primaryGemini.working = true;
+        results.primaryGemini.details = `Success: Connects successfully using ${primarySuccessfulModel}! Response: "${primaryRespContent.substring(0, 80)}"`;
+      } else {
+        results.primaryGemini.details = "Connection failed";
+        results.primaryGemini.error = primaryLastErr?.message || String(primaryLastErr);
+      }
+    }
+
+    // 2. Backup Key Check
+    if (backupKey) {
+      results.backupGemini.configured = true;
+      const testModels = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"];
+      let backupTestedOk = false;
+      let backupLastErr: any = null;
+      let backupSuccessfulModel = "";
+      let backupRespContent = "";
+
+      for (const model of testModels) {
+        try {
+          console.log(`[DIAGNOSTIC] Calling backup Gemini API key using model ${model}...`);
+          const ai = new GoogleGenAI({
+            apiKey: backupKey,
+            httpOptions: { headers: { 'User-Agent': 'aistudio-build-diagnostics' } }
+          });
+          const resp = await ai.models.generateContent({
+            model,
+            contents: "Echo: Hello backup diagnostics!"
+          });
+          const text = resp?.text || resp?.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (text && text.trim()) {
+            backupTestedOk = true;
+            backupSuccessfulModel = model;
+            backupRespContent = text.trim();
+            break;
+          }
+        } catch (err: any) {
+          console.warn(`[DIAGNOSTIC] Model ${model} test failed for backup key:`, err?.message || err);
+          backupLastErr = err;
+        }
+      }
+
+      if (backupTestedOk) {
+        results.backupGemini.working = true;
+        results.backupGemini.details = `Success: Connects successfully using ${backupSuccessfulModel}! Response: "${backupRespContent.substring(0, 80)}"`;
+      } else {
+        results.backupGemini.details = "Connection failed";
+        results.backupGemini.error = backupLastErr?.message || String(backupLastErr);
+      }
+    }
+
+    // 3. OpenRouter Key Check
+    if (openRouterKey) {
+      results.openRouter.configured = true;
+      const testModels = ["google/gemini-2.5-flash-lite", "google/gemini-2.5-flash", "openrouter/free"];
+      let orTestedOk = false;
+      let orLastErr: any = null;
+      let orSuccessfulModel = "";
+      let orRespContent = "";
+
+      for (const model of testModels) {
+        try {
+          console.log(`[DIAGNOSTIC] Calling OpenRouter API key using model ${model}...`);
+          const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${openRouterKey}`,
+              "Content-Type": "application/json",
+              "HTTP-Referer": "https://ai.studio/build",
+              "X-Title": "RPSC Quiz Diagnostics"
+            },
+            body: JSON.stringify({
+              model,
+              messages: [{ role: "user", content: "Echo: Hello OpenRouter diagnostics!" }]
+            })
+          });
+
+          if (!response.ok) {
+            throw new Error(`OpenRouter returned status ${response.status}: ${await response.text()}`);
+          }
+
+          const data: any = await response.json();
+          const content = data?.choices?.[0]?.message?.content;
+          
+          if (content && content.trim()) {
+            orTestedOk = true;
+            orSuccessfulModel = model;
+            orRespContent = content.trim();
+            break;
+          } else {
+            throw new Error("Received an empty content payload back from OpenRouter.");
+          }
+        } catch (err: any) {
+          console.warn(`[DIAGNOSTIC] OpenRouter model ${model} test failed:`, err?.message || err);
+          orLastErr = err;
+        }
+      }
+
+      if (orTestedOk) {
+        results.openRouter.working = true;
+        results.openRouter.details = `Success: Connects successfully using ${orSuccessfulModel}! Response: "${orRespContent.substring(0, 80)}"`;
+      } else {
+        results.openRouter.details = "Connection failed";
+        results.openRouter.error = orLastErr?.message || String(orLastErr);
+      }
+    }
+
+    return res.json(results);
   });
 
   // Vite middleware for development

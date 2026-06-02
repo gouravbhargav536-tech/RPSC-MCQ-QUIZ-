@@ -78,7 +78,8 @@ export default function App() {
     language: 'English',
     questionCount: 10,
     pattern: '2021-Present',
-    topic: ''
+    topic: '',
+    feedbackMode: 'Instant Feedback'
   });
 
   // Quiz state
@@ -958,12 +959,12 @@ export default function App() {
                     </div>
                   )}
 
-                  {screen === 'QUIZ' && (
+                  {screen === 'QUIZ' && config.feedbackMode === 'Submit at End' && currentIndex === questions.length - 1 && (
                     <button 
                       onClick={() => setScreen('RESULTS')}
-                      className="px-2 md:px-6 py-1 md:py-2 bg-slate-900 text-white text-[10px] md:text-sm font-semibold rounded hover:bg-slate-800 transition-colors shadow-sm ml-1 md:ml-4"
+                      className="px-2 md:px-6 py-1 md:py-2 bg-slate-900 text-white text-[10px] md:text-sm font-semibold rounded hover:bg-slate-800 transition-colors shadow-sm ml-1 md:ml-4 animate-pulse"
                     >
-                      Submit
+                      Submit Exam
                     </button>
                   )}
                   {screen === 'RESULTS' && (
@@ -1168,23 +1169,34 @@ export default function App() {
                     let btnClass = "border-slate-200 bg-white hover:border-primary shadow-sm hover:shadow-md";
                     let circleClass = "border-slate-200 text-slate-400 group-hover:bg-primary group-hover:text-white group-hover:border-primary";
 
-                    if (isAnswered) {
-                      if (isCorrect) {
-                        btnClass = "border-primary bg-primary/5 shadow-lg pointer-events-none ring-2 ring-primary/20";
-                        circleClass = "bg-primary text-white border-primary scale-110";
-                      } else if (isSelected) {
-                        btnClass = "border-red-400 bg-red-50/50 pointer-events-none";
-                        circleClass = "bg-red-500 text-white border-red-500";
-                      } else {
-                        btnClass = "opacity-40 grayscale pointer-events-none border-slate-100 bg-white shadow-none";
+                    if (config.feedbackMode === 'Submit at End') {
+                      if (userAnswers[currentIndex] !== null) {
+                        if (isSelected) {
+                          btnClass = "border-primary bg-primary/5 shadow-md ring-2 ring-primary/20";
+                          circleClass = "bg-primary text-white border-primary scale-110";
+                        } else {
+                          btnClass = "opacity-75 border-slate-200 bg-white hover:border-primary shadow-sm";
+                        }
+                      }
+                    } else {
+                      if (isAnswered) {
+                        if (isCorrect) {
+                          btnClass = "border-primary bg-primary/5 shadow-lg pointer-events-none ring-2 ring-primary/20";
+                          circleClass = "bg-primary text-white border-primary scale-110";
+                        } else if (isSelected) {
+                          btnClass = "border-red-400 bg-red-50/50 pointer-events-none";
+                          circleClass = "bg-red-500 text-white border-red-500";
+                        } else {
+                          btnClass = "opacity-40 grayscale pointer-events-none border-slate-100 bg-white shadow-none";
+                        }
                       }
                     }
 
                     return (
                       <motion.button
                         key={key}
-                        whileHover={!isAnswered ? { y: -4, scale: 1.01 } : {}}
-                        whileTap={!isAnswered ? { scale: 0.98 } : {}}
+                        whileHover={config.feedbackMode === 'Submit at End' || !isAnswered ? { y: -4, scale: 1.01 } : {}}
+                        whileTap={config.feedbackMode === 'Submit at End' || !isAnswered ? { scale: 0.98 } : {}}
                         onClick={() => handleSelectAnswer(key)}
                         className={`flex items-center gap-3 md:gap-4 p-3 md:p-4 border transition-all text-left group relative min-h-[60px] ${
                           theme === 'rajasthan' ? 'rounded-2xl' : 'rounded-xl'
@@ -1193,8 +1205,8 @@ export default function App() {
                         <span className={`w-8 h-8 md:w-10 md:h-10 shrink-0 rounded-xl border-2 flex items-center justify-center font-bold text-sm md:text-base transition-all ${circleClass}`}>
                           {key}
                         </span>
-                        <span className={`text-sm md:text-base flex-1 leading-tight ${isSelected && !isAnswered ? 'font-bold' : 'font-medium'}`}>{value}</span>
-                        {isAnswered && isCorrect && (
+                        <span className={`text-sm md:text-base flex-1 leading-tight ${isSelected && (config.feedbackMode === 'Submit at End' || !isAnswered) ? 'font-bold' : 'font-medium'}`}>{value}</span>
+                        {isAnswered && isCorrect && config.feedbackMode !== 'Submit at End' && (
                           <motion.div 
                             initial={{ scale: 0 }}
                             animate={{ scale: 1 }}
@@ -1203,7 +1215,7 @@ export default function App() {
                             <CheckCircle2 className="text-primary" size={20} />
                           </motion.div>
                         )}
-                        {isAnswered && isSelected && !isCorrect && (
+                        {isAnswered && isSelected && !isCorrect && config.feedbackMode !== 'Submit at End' && (
                           <motion.div 
                             initial={{ scale: 0 }}
                             animate={{ scale: 1 }}
@@ -1304,7 +1316,7 @@ export default function App() {
                    </div>
                 </div>
 
-                          {isAnswered && questions[currentIndex] && (
+                          {isAnswered && questions[currentIndex] && (config.feedbackMode !== 'Submit at End' || isReviewMode) && (
                             <motion.div
                               initial={{ opacity: 0, y: 10 }}
                               animate={{ opacity: 1, y: 0 }}
@@ -1432,6 +1444,7 @@ export default function App() {
                       theme={theme}
                       handleStartQuiz={handleStartQuiz}
                       setScreen={setScreen}
+                      userAnswers={userAnswers}
                     />
                   )}
                 </AnimatePresence>

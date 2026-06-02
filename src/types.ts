@@ -46,6 +46,8 @@ export type ExamPattern = '2012-2020' | '2021-Present';
 export type Difficulty = 'Easy' | 'Medium' | 'Hard';
 export type Language = 'Hindi' | 'English' | 'Hinglish';
 
+export type FeedbackMode = 'Instant Feedback' | 'Submit at End';
+
 export interface QuizConfig {
   subject: Subject;
   difficulty: Difficulty;
@@ -53,6 +55,7 @@ export interface QuizConfig {
   questionCount: number;
   pattern: ExamPattern;
   topic?: string;
+  feedbackMode?: FeedbackMode;
 }
 
 export interface QuizResult {
