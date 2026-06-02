@@ -321,6 +321,7 @@ function getLocalMockQuestions(config: any): any[] {
 async function callGeminiWithRetryAndFallback(apiKeys: string[], prompt: string, responseSchema: any, isObject = false, systemInstruction?: string): Promise<string> {
   const modelsToTry = [
     "gemini-3.5-flash",
+    "gemini-2.5-flash",
     "gemini-3.1-flash-lite",
     "gemini-3.1-pro-preview"
   ];
@@ -340,116 +341,96 @@ async function callGeminiWithRetryAndFallback(apiKeys: string[], prompt: string,
       }
     });
 
-    let currentModelIndex = 0;
-    let retryCount = 0;
-    const maxRetries = 2; // limit per key for rapid turnaround
-    const retryDelays = [1500, 3000];
-
-    while (retryCount <= maxRetries && currentModelIndex < modelsToTry.length) {
+    for (let currentModelIndex = 0; currentModelIndex < modelsToTry.length; currentModelIndex++) {
       const modelName = modelsToTry[currentModelIndex];
-      console.log(`[GENERATOR] Gemini quiz generation attempts: model ${modelName} with API key index ${keyIndex} (Retry: ${retryCount}/${maxRetries})`);
+      let modelRetries = 1; // 2 attempts per model (initial + 1 retry)
 
-      try {
-        let timedOut = false;
-        const timeoutPromise = new Promise((_, reject) => {
-          setTimeout(() => {
-            timedOut = true;
-            reject(new Error(`Timeout limits exceeded for model ${modelName}`));
-          }, 30000);
-        });
+      for (let attempt = 0; attempt <= modelRetries; attempt++) {
+        console.log(`[GENERATOR] Enterprise AI quiz generation: testing model ${modelName} with API key index ${keyIndex} (Attempt: ${attempt + 1}/${modelRetries + 1})`);
+        try {
+          let timedOut = false;
+          const timeoutPromise = new Promise((_, reject) => {
+            setTimeout(() => {
+              timedOut = true;
+              reject(new Error(`Timeout limits exceeded for model ${modelName}`));
+            }, 30000);
+          });
 
-        // Assemble config matching model capabilities
-        const configObj: any = {
-          responseMimeType: "application/json"
-        };
+          // Assemble config matching model capabilities
+          const configObj: any = {
+            responseMimeType: "application/json"
+          };
 
-        if (responseSchema) {
-          configObj.responseSchema = responseSchema;
-        }
-
-        if (systemInstruction) {
-          configObj.systemInstruction = systemInstruction;
-        }
-
-        const generationPromise = ai.models.generateContent({
-          model: modelName,
-          contents: prompt,
-          config: configObj
-        });
-
-        const response: any = await Promise.race([generationPromise, timeoutPromise]);
-        if (timedOut) {
-          throw new Error(`Execution hung during generateContent with model ${modelName}`);
-        }
-
-        // Safely extract text following enterprise guideline:
-        // data?.candidates?.[0]?.content?.parts?.[0]?.text
-        let text = response?.text;
-        
-        // Attempt alternative extraction mapping
-        if (!text && response) {
-          text = response?.candidates?.[0]?.content?.parts?.[0]?.text;
-        }
-
-        // If empty: retry automatically
-        if (!text || !text.trim()) {
-          throw new Error("Empty AI response received.");
-        }
-
-        return text;
-
-      } catch (err: any) {
-        lastError = err;
-        
-        // Check authentication / authorization failures or rate restrictions
-        const status = err?.status || err?.response?.status || err?.response?.data?.error?.status || err?.response?.data?.error?.code || err?.code;
-        const message = (err?.message || "").toLowerCase();
-        
-        if (status === 401 || status === 403 || message.includes("unauthorized") || message.includes("api_key_invalid") || message.includes("invalid api key") || message.includes("not found")) {
-          console.error(`[GENERATOR] API Key at index ${keyIndex} failed authentication/authorization. Attempting alternative keys...`);
-          break; // break the inner while, moves to next key in the outer loop
-        }
-
-        // Check for 503 UNAVAILABLE or demand spike
-        const is503 = (status === 503 || 
-                       message.includes("503") || 
-                       message.includes("unavailable") || 
-                       message.includes("experiencing high demand") || 
-                       message.includes("resourceexhausted") ||
-                       err?.status === "UNAVAILABLE" ||
-                       (err?.response?.data?.error?.status === "UNAVAILABLE"));
-
-        if (is503) {
-          console.error("[GEMINI_503]", err);
-          console.warn("[GENERATOR] OVERLOAD WARNING: Model is overloaded or experiencing heavy spikes.");
-          
-          if (retryCount < maxRetries) {
-            const delay = retryDelays[retryCount % retryDelays.length];
-            console.log(`[GENERATOR] Backing off for ${delay}ms...`);
-            await new Promise(resolve => setTimeout(resolve, delay));
-            
-            console.log("[GENERATOR] Switching Gemini model...");
-            currentModelIndex = (currentModelIndex + 1) % modelsToTry.length;
-            
-            retryCount++;
-            console.log("[GENERATOR] Retrying request...");
-            continue;
-          } else {
-            break; // Try next API key
+          if (responseSchema) {
+            configObj.responseSchema = responseSchema;
           }
-        } else {
-          console.warn(`[GENERATOR] Transient error on ${modelName}:`, err?.message || err);
+
+          if (systemInstruction) {
+            configObj.systemInstruction = systemInstruction;
+          }
+
+          const generationPromise = ai.models.generateContent({
+            model: modelName,
+            contents: prompt,
+            config: configObj
+          });
+
+          const response: any = await Promise.race([generationPromise, timeoutPromise]);
+          if (timedOut) {
+            throw new Error(`Execution hung during generateContent with model ${modelName}`);
+          }
+
+          // Safely extract text following enterprise guideline:
+          // data?.candidates?.[0]?.content?.parts?.[0]?.text
+          let text = response?.text;
           
-          if (retryCount < maxRetries) {
-            const delay = retryDelays[retryCount % retryDelays.length];
-            console.log(`[GENERATOR] Backing off for ${delay}ms before retry.`);
-            await new Promise(resolve => setTimeout(resolve, delay));
-            
-            retryCount++;
-            console.log("[GENERATOR] Retrying request...");
-            continue;
+          // Attempt alternative extraction mapping
+          if (!text && response) {
+            text = response?.candidates?.[0]?.content?.parts?.[0]?.text;
+          }
+
+          // If empty: retry automatically
+          if (!text || !text.trim()) {
+            throw new Error("Empty AI response received.");
+          }
+
+          return text;
+
+        } catch (err: any) {
+          lastError = err;
+          
+          // Check authentication / authorization failures or rate restrictions to switch keys immediately
+          const status = err?.status || err?.response?.status || err?.response?.data?.error?.status || err?.response?.data?.error?.code || err?.code;
+          const message = (err?.message || "").toLowerCase();
+          
+          if (status === 401 || status === 403 || message.includes("unauthorized") || message.includes("api_key_invalid") || message.includes("invalid api key") || message.includes("not found")) {
+            console.error(`[GENERATOR] API Key at index ${keyIndex} failed authentication/authorization. Proceeding to backup keys...`);
+            attempt = modelRetries + 1; // Break the attempt loop for this model
+            currentModelIndex = modelsToTry.length; // Break the model loop for this key
+            break;
+          }
+
+          // Check for 503 UNAVAILABLE or demand spike
+          const is503 = (status === 503 || 
+                         message.includes("503") || 
+                         message.includes("unavailable") || 
+                         message.includes("experiencing high demand") || 
+                         message.includes("resourceexhausted") ||
+                         err?.status === "UNAVAILABLE" ||
+                         (err?.response?.data?.error?.status === "UNAVAILABLE"));
+
+          if (is503) {
+            console.error("[GEMINI_503]", err);
+            console.warn(`[GENERATOR] Model ${modelName} overloaded on key index ${keyIndex}. Switching model immediately...`);
+            break; // Break the attempt loop for this model, moving sequentially to next model
           } else {
-            break; // Try next API key
+            console.warn(`[GENERATOR] Transient error on ${modelName}:`, err?.message || err);
+            
+            if (attempt < modelRetries) {
+              const delay = 1500;
+              console.log(`[GENERATOR] Backing off for ${delay}ms before retrying ${modelName}.`);
+              await new Promise(resolve => setTimeout(resolve, delay));
+            }
           }
         }
       }
