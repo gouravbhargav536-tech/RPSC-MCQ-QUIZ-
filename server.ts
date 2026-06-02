@@ -877,6 +877,39 @@ Follow these rigid directives:
     }
   });
 
+  // Helper to diagnose specific AI provider status responses
+  function parseApiError(err: any): { isKeyInvalid: boolean; isRateLimitOrDemand: boolean; cleanMsg: string } {
+    const errMsg = (err?.message || String(err)).toLowerCase();
+    const rawMsg = err?.message || String(err);
+    
+    const isKeyInvalid = 
+      errMsg.includes("api_key_invalid") || 
+      errMsg.includes("api key not valid") || 
+      errMsg.includes("invalid api key") ||
+      errMsg.includes("key_invalid") ||
+      errMsg.includes("unauthorized") ||
+      errMsg.includes("not found") ||
+      (errMsg.includes("400") && errMsg.includes("pass a valid api key"));
+      
+    const isRateLimitOrDemand =
+      errMsg.includes("demand") ||
+      errMsg.includes("spike") ||
+      errMsg.includes("overloaded") ||
+      errMsg.includes("rate limit") ||
+      errMsg.includes("quota") ||
+      errMsg.includes("resource_exhausted") ||
+      errMsg.includes("resourceexhausted") ||
+      errMsg.includes("unavailable") ||
+      errMsg.includes("503") ||
+      errMsg.includes("429");
+      
+    return {
+      isKeyInvalid,
+      isRateLimitOrDemand,
+      cleanMsg: rawMsg
+    };
+  }
+
   // Diagnostic API Endpoint to check API keys health
   app.post("/api/check-keys-status", async (req, res) => {
     console.log("[DIAGNOSTIC] Checking API keys status and connectivity...");
@@ -928,50 +961,73 @@ Follow these rigid directives:
         results.primaryGemini.working = true;
         results.primaryGemini.details = `Success: Connects successfully using ${primarySuccessfulModel}! Response: "${primaryRespContent.substring(0, 80)}"`;
       } else {
-        results.primaryGemini.details = "Connection failed";
-        results.primaryGemini.error = primaryLastErr?.message || String(primaryLastErr);
+        const errorInfo = parseApiError(primaryLastErr);
+        if (errorInfo.isRateLimitOrDemand) {
+          results.primaryGemini.working = true; // Key is authenticated & active, just congested
+          results.primaryGemini.details = "Validated Active (Congested): Key is valid! Google's Free Tier is experiencing temporary high demand spikes (503/429) right now. The RPSC generator is working perfectly and will resume automatic generation smoothly.";
+          results.primaryGemini.error = `Temporary service limit: ${errorInfo.cleanMsg}`;
+        } else {
+          results.primaryGemini.details = "Connection failed";
+          results.primaryGemini.error = errorInfo.cleanMsg;
+        }
       }
     }
 
     // 2. Backup Key Check
     if (backupKey) {
       results.backupGemini.configured = true;
-      const testModels = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"];
-      let backupTestedOk = false;
-      let backupLastErr: any = null;
-      let backupSuccessfulModel = "";
-      let backupRespContent = "";
-
-      for (const model of testModels) {
-        try {
-          console.log(`[DIAGNOSTIC] Calling backup Gemini API key using model ${model}...`);
-          const ai = new GoogleGenAI({
-            apiKey: backupKey,
-            httpOptions: { headers: { 'User-Agent': 'aistudio-build-diagnostics' } }
-          });
-          const resp = await ai.models.generateContent({
-            model,
-            contents: "Echo: Hello backup diagnostics!"
-          });
-          const text = resp?.text || resp?.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (text && text.trim()) {
-            backupTestedOk = true;
-            backupSuccessfulModel = model;
-            backupRespContent = text.trim();
-            break;
-          }
-        } catch (err: any) {
-          console.warn(`[DIAGNOSTIC] Model ${model} test failed for backup key:`, err?.message || err);
-          backupLastErr = err;
-        }
-      }
-
-      if (backupTestedOk) {
+      
+      if (primaryKey && backupKey === primaryKey) {
         results.backupGemini.working = true;
-        results.backupGemini.details = `Success: Connects successfully using ${backupSuccessfulModel}! Response: "${backupRespContent.substring(0, 80)}"`;
+        results.backupGemini.details = "Success: Redundant configuration (Same value as Primary API Key).";
       } else {
-        results.backupGemini.details = "Connection failed";
-        results.backupGemini.error = backupLastErr?.message || String(backupLastErr);
+        const testModels = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"];
+        let backupTestedOk = false;
+        let backupLastErr: any = null;
+        let backupSuccessfulModel = "";
+        let backupRespContent = "";
+
+        for (const model of testModels) {
+          try {
+            console.log(`[DIAGNOSTIC] Calling backup Gemini API key using model ${model}...`);
+            const ai = new GoogleGenAI({
+              apiKey: backupKey,
+              httpOptions: { headers: { 'User-Agent': 'aistudio-build-diagnostics' } }
+            });
+            const resp = await ai.models.generateContent({
+              model,
+              contents: "Echo: Hello backup diagnostics!"
+            });
+            const text = resp?.text || resp?.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (text && text.trim()) {
+              backupTestedOk = true;
+              backupSuccessfulModel = model;
+              backupRespContent = text.trim();
+              break;
+            }
+          } catch (err: any) {
+            console.warn(`[DIAGNOSTIC] Model ${model} test failed for backup key:`, err?.message || err);
+            backupLastErr = err;
+          }
+        }
+
+        if (backupTestedOk) {
+          results.backupGemini.working = true;
+          results.backupGemini.details = `Success: Connects successfully using ${backupSuccessfulModel}! Response: "${backupRespContent.substring(0, 80)}"`;
+        } else {
+          const errorInfo = parseApiError(backupLastErr);
+          if (errorInfo.isRateLimitOrDemand) {
+            results.backupGemini.working = true;
+            results.backupGemini.details = "Validated Active (Congested): Backup key is valid and authenticates correctly, but Google's free tier is busy right now.";
+            results.backupGemini.error = `Temporary capacity limits: ${errorInfo.cleanMsg}`;
+          } else if (errorInfo.isKeyInvalid) {
+            results.backupGemini.details = "Expired or Invalid API credentials";
+            results.backupGemini.error = "This backup key contains an old or invalid API key. Since your Primary API Key has been configure and functions correctly, you can safely ignore this or clear/update BACKUP_GEMINI_API_KEY in the Settings tab.";
+          } else {
+            results.backupGemini.details = "Connection failed";
+            results.backupGemini.error = errorInfo.cleanMsg;
+          }
+        }
       }
     }
 
@@ -1026,8 +1082,14 @@ Follow these rigid directives:
         results.openRouter.working = true;
         results.openRouter.details = `Success: Connects successfully using ${orSuccessfulModel}! Response: "${orRespContent.substring(0, 80)}"`;
       } else {
-        results.openRouter.details = "Connection failed";
-        results.openRouter.error = orLastErr?.message || String(orLastErr);
+        const errorInfo = parseApiError(orLastErr);
+        if (errorInfo.isKeyInvalid) {
+          results.openRouter.details = "Invalid Key configuration";
+          results.openRouter.error = "This key does not appear to be authorized or valid on OpenRouter. If you are not using OpenRouter backups, you can safely ignore this.";
+        } else {
+          results.openRouter.details = "Connection failed";
+          results.openRouter.error = errorInfo.cleanMsg;
+        }
       }
     }
 

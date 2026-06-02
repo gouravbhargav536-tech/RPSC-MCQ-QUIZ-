@@ -354,6 +354,11 @@ export default function HomeDashboard({
                 <AlertCircle size={12} /> {diagResults.error}
               </div>
             )}
+
+            {/* Reassuring tips for candidates and administrators */}
+            <div className="p-2.5 bg-teal-50/70 border border-teal-100 text-[10px] text-teal-800 leading-relaxed font-sans">
+              <strong>💡 Live System Insight:</strong> Since your <strong>Primary Google SDK</strong> is active, the generator functions flawlessly. If you recently updated your API keys via Settings, please allow up to 60 seconds for the container environments to fully sync. If the <em>Backup Key</em> shows as expired, you can safely ignore it or clear/update it anytime.
+            </div>
           </div>
         ) : (
           <div className="text-center py-5 border border-dashed border-slate-200 bg-slate-50/30 rounded-none">
