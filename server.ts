@@ -286,7 +286,7 @@ const FALLBACK_QUESTIONS_DB: Record<string, any[]> = {
         C: "Standard position transposition without offsets.",
         D: "Flipped orientation calculation."
       },
-      extraFacts: ["Common pattern of adding constant and reversing sequence.", "Always write down position mapping on rough sheet early!"],
+            extraFacts: ["Common pattern of adding constant and reversing sequence.", "Always write down position mapping on rough sheet early!"],
       patternYear: "RPSC Mental Ability",
       videoUrl: "",
       imageUrl: ""
@@ -318,130 +318,145 @@ function getLocalMockQuestions(config: any): any[] {
 }
 
 // Model-agnostic robust retry engine conforming to Production-Grade Gemini API Reliability standards
-async function callGeminiWithRetryAndFallback(ai: any, prompt: string, responseSchema: any, isObject = false, systemInstruction?: string): Promise<string> {
+async function callGeminiWithRetryAndFallback(apiKeys: string[], prompt: string, responseSchema: any, isObject = false, systemInstruction?: string): Promise<string> {
   const modelsToTry = [
     "gemini-3.5-flash",
     "gemini-3.1-flash-lite",
     "gemini-3.1-pro-preview"
   ];
 
-  let currentModelIndex = 0;
-  let retryCount = 0;
-  const maxRetries = 3;
-  const retryDelays = [2000, 5000, 10000];
   let lastError: any = null;
 
-  while (retryCount <= maxRetries && currentModelIndex < modelsToTry.length) {
-    const modelName = modelsToTry[currentModelIndex];
-    console.log(`[GENERATOR] Enterprise AI quiz generation attempt with model: ${modelName} (Retry: ${retryCount}/${maxRetries})`);
+  for (let keyIndex = 0; keyIndex < apiKeys.length; keyIndex++) {
+    const apiKey = apiKeys[keyIndex];
+    if (!apiKey) continue;
 
-    try {
-      let timedOut = false;
-      const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => {
-          timedOut = true;
-          reject(new Error(`Timeout limits exceeded for model ${modelName}`));
-        }, 30000);
-      });
-
-      // Assemble config matching model capabilities
-      const configObj: any = {
-        responseMimeType: "application/json"
-      };
-
-      if (responseSchema) {
-        configObj.responseSchema = responseSchema;
-      }
-
-      if (systemInstruction) {
-        configObj.systemInstruction = systemInstruction;
-      }
-
-      const generationPromise = ai.models.generateContent({
-        model: modelName,
-        contents: prompt,
-        config: configObj
-      });
-
-      const response: any = await Promise.race([generationPromise, timeoutPromise]);
-      if (timedOut) {
-        throw new Error(`Execution hung during generateContent with model ${modelName}`);
-      }
-
-      // Safely extract text following enterprise guideline:
-      // data?.candidates?.[0]?.content?.parts?.[0]?.text
-      let text = response?.text;
-      
-      // Attempt alternative extraction mapping
-      if (!text && response) {
-        text = response?.candidates?.[0]?.content?.parts?.[0]?.text;
-      }
-
-      // If empty: retry automatically
-      if (!text || !text.trim()) {
-        throw new Error("Empty AI response received.");
-      }
-
-      return text;
-
-    } catch (err: any) {
-      lastError = err;
-      
-      // Stop attempts early on authentication/authorization errors
-      const status = err?.status || err?.response?.status || err?.response?.data?.error?.status || err?.response?.data?.error?.code || err?.code;
-      const message = (err?.message || "").toLowerCase();
-      
-      if (status === 401 || status === 403 || message.includes("unauthorized") || message.includes("api_key_invalid") || message.includes("invalid api key")) {
-        console.error("[GENERATOR] Authorization failure. Aborting retry loop.");
-        break;
-      }
-
-      // Check for 503 UNAVAILABLE or demand spike
-      const is503 = (status === 503 || 
-                     message.includes("503") || 
-                     message.includes("unavailable") || 
-                     message.includes("experiencing high demand") || 
-                     message.includes("resourceexhausted") ||
-                     err?.status === "UNAVAILABLE" ||
-                     (err?.response?.data?.error?.status === "UNAVAILABLE"));
-
-      if (is503) {
-        console.error("[GEMINI_503]", err);
-        console.warn("[GENERATOR] OVERLOAD WARNING: Model is overloaded or experiencing heavy spikes.");
-        
-        if (retryCount < maxRetries) {
-          const delay = retryDelays[retryCount % retryDelays.length];
-          console.log(`[GENERATOR] Backing off for ${delay}ms...`);
-          await new Promise(resolve => setTimeout(resolve, delay));
-          
-          console.log("[GENERATOR] Switching Gemini model...");
-          currentModelIndex = (currentModelIndex + 1) % modelsToTry.length;
-          
-          retryCount++;
-          console.log("[GENERATOR] Retrying request...");
-          continue;
-        } else {
-          break;
+    const ai = new GoogleGenAI({
+      apiKey,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
         }
-      } else {
-        console.warn(`[GENERATOR] Transient error on ${modelName}:`, err?.message || err);
+      }
+    });
+
+    let currentModelIndex = 0;
+    let retryCount = 0;
+    const maxRetries = 2; // limit per key for rapid turnaround
+    const retryDelays = [1500, 3000];
+
+    while (retryCount <= maxRetries && currentModelIndex < modelsToTry.length) {
+      const modelName = modelsToTry[currentModelIndex];
+      console.log(`[GENERATOR] Gemini quiz generation attempts: model ${modelName} with API key index ${keyIndex} (Retry: ${retryCount}/${maxRetries})`);
+
+      try {
+        let timedOut = false;
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => {
+            timedOut = true;
+            reject(new Error(`Timeout limits exceeded for model ${modelName}`));
+          }, 30000);
+        });
+
+        // Assemble config matching model capabilities
+        const configObj: any = {
+          responseMimeType: "application/json"
+        };
+
+        if (responseSchema) {
+          configObj.responseSchema = responseSchema;
+        }
+
+        if (systemInstruction) {
+          configObj.systemInstruction = systemInstruction;
+        }
+
+        const generationPromise = ai.models.generateContent({
+          model: modelName,
+          contents: prompt,
+          config: configObj
+        });
+
+        const response: any = await Promise.race([generationPromise, timeoutPromise]);
+        if (timedOut) {
+          throw new Error(`Execution hung during generateContent with model ${modelName}`);
+        }
+
+        // Safely extract text following enterprise guideline:
+        // data?.candidates?.[0]?.content?.parts?.[0]?.text
+        let text = response?.text;
         
-        if (retryCount < maxRetries) {
-          const delay = retryDelays[retryCount % retryDelays.length];
-          console.log(`[GENERATOR] Backing off for ${delay}ms before retry.`);
-          await new Promise(resolve => setTimeout(resolve, delay));
+        // Attempt alternative extraction mapping
+        if (!text && response) {
+          text = response?.candidates?.[0]?.content?.parts?.[0]?.text;
+        }
+
+        // If empty: retry automatically
+        if (!text || !text.trim()) {
+          throw new Error("Empty AI response received.");
+        }
+
+        return text;
+
+      } catch (err: any) {
+        lastError = err;
+        
+        // Check authentication / authorization failures or rate restrictions
+        const status = err?.status || err?.response?.status || err?.response?.data?.error?.status || err?.response?.data?.error?.code || err?.code;
+        const message = (err?.message || "").toLowerCase();
+        
+        if (status === 401 || status === 403 || message.includes("unauthorized") || message.includes("api_key_invalid") || message.includes("invalid api key") || message.includes("not found")) {
+          console.error(`[GENERATOR] API Key at index ${keyIndex} failed authentication/authorization. Attempting alternative keys...`);
+          break; // break the inner while, moves to next key in the outer loop
+        }
+
+        // Check for 503 UNAVAILABLE or demand spike
+        const is503 = (status === 503 || 
+                       message.includes("503") || 
+                       message.includes("unavailable") || 
+                       message.includes("experiencing high demand") || 
+                       message.includes("resourceexhausted") ||
+                       err?.status === "UNAVAILABLE" ||
+                       (err?.response?.data?.error?.status === "UNAVAILABLE"));
+
+        if (is503) {
+          console.error("[GEMINI_503]", err);
+          console.warn("[GENERATOR] OVERLOAD WARNING: Model is overloaded or experiencing heavy spikes.");
           
-          retryCount++;
-          console.log("[GENERATOR] Retrying request...");
-          continue;
+          if (retryCount < maxRetries) {
+            const delay = retryDelays[retryCount % retryDelays.length];
+            console.log(`[GENERATOR] Backing off for ${delay}ms...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+            
+            console.log("[GENERATOR] Switching Gemini model...");
+            currentModelIndex = (currentModelIndex + 1) % modelsToTry.length;
+            
+            retryCount++;
+            console.log("[GENERATOR] Retrying request...");
+            continue;
+          } else {
+            break; // Try next API key
+          }
         } else {
-          break;
+          console.warn(`[GENERATOR] Transient error on ${modelName}:`, err?.message || err);
+          
+          if (retryCount < maxRetries) {
+            const delay = retryDelays[retryCount % retryDelays.length];
+            console.log(`[GENERATOR] Backing off for ${delay}ms before retry.`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+            
+            retryCount++;
+            console.log("[GENERATOR] Retrying request...");
+            continue;
+          } else {
+            break; // Try next API key
+          }
         }
       }
     }
   }
 
-  throw lastError || new Error("All fallback models and retries exhausted.");
+  throw lastError || new Error("All fallback models, retries, and API keys exhausted.");
 }
 
 // Maps and handles standard Gemini response error status specifically for user friendly delivery
@@ -498,22 +513,16 @@ async function startServer() {
       }
 
       const { subject, difficulty, language, questionCount, topic, pattern } = config;
-      const apiKey = process.env.GEMINI_API_KEY;
+      const primaryKey = process.env.GEMINI_API_KEY;
+      const backupKey = process.env.BACKUP_GEMINI_API_KEY || process.env.GEMINI_API_KEY_BACKUP;
       
-      if (!apiKey) {
-        console.warn("[WARNING] GEMINI_API_KEY is not defined. Triggering local high-fidelity fallback pool.");
+      if (!primaryKey && !backupKey) {
+        console.warn("[WARNING] No Gemini API keys defined. Triggering local high-fidelity fallback pool.");
         const localQs = getLocalMockQuestions(config);
         return res.json({ questions: localQs });
       }
 
-      const ai = new GoogleGenAI({
-        apiKey,
-        httpOptions: {
-          headers: {
-            'User-Agent': 'aistudio-build',
-          }
-        }
-      });
+      const keysToTry = [primaryKey, backupKey].filter(Boolean) as string[];
 
       const patternScope = pattern === '2012-2020' 
         ? 'Old Pattern (2012–2020): Direct factual questions, simple recall-based.' 
@@ -580,8 +589,8 @@ Follow these rigid directives:
         }
       };
 
-      // Call retry mechanism across multiple models
-      const textOutput = await callGeminiWithRetryAndFallback(ai, prompt, responseSchema, false, systemInstruction);
+      // Call retry mechanism across multiple models and keys
+      const textOutput = await callGeminiWithRetryAndFallback(keysToTry, prompt, responseSchema, false, systemInstruction);
       const parsedQuestions = cleanAndParseJSON(textOutput);
       
       if (!Array.isArray(parsedQuestions) || parsedQuestions.length === 0) {
@@ -645,21 +654,15 @@ Follow these rigid directives:
       }
 
       const { subject, difficulty, language } = config;
-      const apiKey = process.env.GEMINI_API_KEY;
+      const primaryKey = process.env.GEMINI_API_KEY;
+      const backupKey = process.env.BACKUP_GEMINI_API_KEY || process.env.GEMINI_API_KEY_BACKUP;
 
-      if (!apiKey) {
+      if (!primaryKey && !backupKey) {
         console.warn("[WARNING] API Key absent. Triggering custom fail-safe formatter response.");
         throw new Error("API Key absent. Fallback needed.");
       }
 
-      const ai = new GoogleGenAI({
-        apiKey,
-        httpOptions: {
-          headers: {
-            'User-Agent': 'aistudio-build',
-          }
-        }
-      });
+      const keysToTry = [primaryKey, backupKey].filter(Boolean) as string[];
 
       const systemInstruction = `You are an expert RPSC (Rajasthan Public Service Commission) and competitive exam teacher/examiner.
 Follow these rigid directives:
@@ -714,7 +717,7 @@ Follow these rigid directives:
         required: ["question", "options", "correctAnswer", "explanation", "teacherInsight", "wrongOptionsAnalysis", "extraFacts"],
       };
 
-      const textOutput = await callGeminiWithRetryAndFallback(ai, prompt, responseSchema, true, systemInstruction);
+      const textOutput = await callGeminiWithRetryAndFallback(keysToTry, prompt, responseSchema, true, systemInstruction);
       const parsedQuestion = cleanAndParseJSON(textOutput);
 
       if (!parsedQuestion || !parsedQuestion.question) {
