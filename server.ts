@@ -52,6 +52,38 @@ function cleanAndParseJSON(rawText: string): any {
   }
 }
 
+// Cleans API Key and filters out placeholder values or literal quotes from .env defaults
+function getValidKey(key: string | undefined): string | null {
+  if (!key) return null;
+  let cleaned = key.trim();
+  
+  // Strip quotes if they were included literally by default
+  while (
+    (cleaned.startsWith('"') && cleaned.endsWith('"')) || 
+    (cleaned.startsWith("'") && cleaned.endsWith("'"))
+  ) {
+    cleaned = cleaned.substring(1, cleaned.length - 1).trim();
+  }
+  
+  const lower = cleaned.toLowerCase();
+  if (
+    lower === "" ||
+    lower === "undefined" ||
+    lower === "null" ||
+    lower.includes("placeholder") ||
+    lower.includes("your_key_here") ||
+    lower.startsWith("my_") ||
+    lower.startsWith("your_") ||
+    lower === "my_gemini_api_key" ||
+    lower === "my_backup_gemini_api_key" ||
+    lower === "my_openrouter_api_key"
+  ) {
+    return null;
+  }
+  
+  return cleaned;
+}
+
 // Curated RPSC Offline Fallback Questions Database to prevent any outage from disrupting candidates
 const FALLBACK_QUESTIONS_DB: Record<string, any[]> = {
   "Rajasthan GK": [
@@ -437,8 +469,9 @@ async function callGeminiWithRetryAndFallback(apiKeys: string[], prompt: string,
     }
   }
 
-  // Robust absolute last-mile backup using OpenRouter if configured
-  if (process.env.OPENROUTER_API_KEY) {
+  // Robust absolute last-mile backup using OpenRouter if configured and valid
+  const validatedOpenRouterKey = getValidKey(process.env.OPENROUTER_API_KEY);
+  if (validatedOpenRouterKey) {
     try {
       console.warn("[GENERATOR] Gemini SDK attempts exhausted. Activating OpenRouter robust fallback engine...");
       const orResult = await callOpenRouterFallback(prompt, responseSchema, systemInstruction);
@@ -452,7 +485,7 @@ async function callGeminiWithRetryAndFallback(apiKeys: string[], prompt: string,
 }
 
 async function callOpenRouterFallback(prompt: string, responseSchema: any, systemInstruction?: string): Promise<string> {
-  const openRouterKey = process.env.OPENROUTER_API_KEY;
+  const openRouterKey = getValidKey(process.env.OPENROUTER_API_KEY);
   if (!openRouterKey) {
     throw new Error("OpenRouter API key is not configured.");
   }
@@ -573,8 +606,8 @@ async function startServer() {
       }
 
       const { subject, difficulty, language, questionCount, topic, pattern } = config;
-      const primaryKey = process.env.GEMINI_API_KEY;
-      const backupKey = process.env.BACKUP_GEMINI_API_KEY || process.env.GEMINI_API_KEY_BACKUP;
+      const primaryKey = getValidKey(process.env.GEMINI_API_KEY);
+      const backupKey = getValidKey(process.env.BACKUP_GEMINI_API_KEY || process.env.GEMINI_API_KEY_BACKUP);
       
       if (!primaryKey && !backupKey) {
         console.warn("[WARNING] No Gemini API keys defined. Triggering local high-fidelity fallback pool.");
@@ -714,8 +747,8 @@ Follow these rigid directives:
       }
 
       const { subject, difficulty, language } = config;
-      const primaryKey = process.env.GEMINI_API_KEY;
-      const backupKey = process.env.BACKUP_GEMINI_API_KEY || process.env.GEMINI_API_KEY_BACKUP;
+      const primaryKey = getValidKey(process.env.GEMINI_API_KEY);
+      const backupKey = getValidKey(process.env.BACKUP_GEMINI_API_KEY || process.env.GEMINI_API_KEY_BACKUP);
 
       if (!primaryKey && !backupKey) {
         console.warn("[WARNING] API Key absent. Triggering custom fail-safe formatter response.");
@@ -848,9 +881,9 @@ Follow these rigid directives:
   app.post("/api/check-keys-status", async (req, res) => {
     console.log("[DIAGNOSTIC] Checking API keys status and connectivity...");
     
-    const primaryKey = process.env.GEMINI_API_KEY;
-    const backupKey = process.env.BACKUP_GEMINI_API_KEY || process.env.GEMINI_API_KEY_BACKUP;
-    const openRouterKey = process.env.OPENROUTER_API_KEY;
+    const primaryKey = getValidKey(process.env.GEMINI_API_KEY);
+    const backupKey = getValidKey(process.env.BACKUP_GEMINI_API_KEY || process.env.GEMINI_API_KEY_BACKUP);
+    const openRouterKey = getValidKey(process.env.OPENROUTER_API_KEY);
 
     const results: any = {
       primaryGemini: { configured: false, working: false, details: "Not configured in Environment", error: null },
