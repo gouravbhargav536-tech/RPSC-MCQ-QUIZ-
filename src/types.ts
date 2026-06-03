@@ -20,7 +20,6 @@ export interface Question {
     C: string;
     D: string;
   };
-  is_custom?: boolean;
 }
 
 export type Subject = 
@@ -33,13 +32,6 @@ export type Subject =
   | 'Reasoning'
   | 'Rajasthan Current Affairs'
   | 'National Current Affairs';
-
-export interface SubjectMeta {
-  name: Subject;
-  icon: any;
-  color: string;
-  desc: string;
-}
 
 export type ExamPattern = '2012-2020' | '2021-Present';
 

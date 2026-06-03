@@ -38,16 +38,12 @@ import {
   Menu,
   X
 } from 'lucide-react';
-import { generateQuizQuestions, formatCustomQuestionToMcq } from './services/geminiService';
+import { generateQuizQuestions } from './services/geminiService';
 import { Question, QuizConfig, Subject, Difficulty, Language, ThemeType, User, ExamPattern } from './types';
 import { mockAuth } from './services/authService';
 import IntroScreen from './components/IntroScreen';
 import AuthScreen from './components/AuthScreen';
 import RiverMap from './components/RiverMap';
-import HomeDashboard from './components/HomeDashboard';
-import SetupPanel from './components/SetupPanel';
-import RulesPanel from './components/RulesPanel';
-import ResultsPanel from './components/ResultsPanel';
 import { useFeedback } from './hooks/useFeedback';
 
 export default function App() {
@@ -86,25 +82,6 @@ export default function App() {
   const [dailyDone, setDailyDone] = useState(false);
   const [isDailyChallenge, setIsDailyChallenge] = useState(false);
   const [isMapOpen, setIsMapOpen] = useState(false);
-  const [bookmarks, setBookmarks] = useState<Question[]>([]);
-  const [isBookmarksReview, setIsBookmarksReview] = useState(false);
-
-  // Core AI Engine & Firestore Sync Protocol states
-  const [syncLog, setSyncLog] = useState<{
-    session_id: string;
-    operation: 'RESUME_SESSION' | 'POPUP_INJECT' | 'LOAD_CACHE' | 'NEW_GENERATION';
-    current_index: number;
-    quiz_data: {
-      question: string;
-      options: string[];
-      correct_answer: string;
-      is_custom: boolean;
-    } | null;
-  } | null>(null);
-  const [showInjectModal, setShowInjectModal] = useState(false);
-  const [customInputPrompt, setCustomInputPrompt] = useState('');
-  const [injecting, setInjecting] = useState(false);
-  const [showSyncLogConsole, setShowSyncLogConsole] = useState(true);
 
   const { feedback } = useFeedback();
 
@@ -114,67 +91,15 @@ export default function App() {
     if (saved) setHasSavedQuiz(true);
   }, [screen]);
 
-  // Load bookmarks on mount
-  useEffect(() => {
-    const savedBookmarks = localStorage.getItem('rpsc_bookmarks');
-    if (savedBookmarks) {
-      try {
-        setBookmarks(JSON.parse(savedBookmarks));
-      } catch (e) {
-        console.error("Failed to parse saved bookmarks", e);
-      }
-    }
-  }, []);
-
-  // Persist user and progress with Automated Resumption (Sudden Exit Handler)
+  // Persist user and progress
   useEffect(() => {
     const savedUser = localStorage.getItem('rpsc_user');
     if (savedUser) {
       try {
-        const parsedUser = JSON.parse(savedUser);
-        setUser(parsedUser);
-        
-        // Automated Resumption check:
-        // Automatically analyze the last state and resume the quiz exactly from the last saved question index
-        const savedQuiz = localStorage.getItem('rpsc_current_quiz');
-        if (savedQuiz) {
-          const data = JSON.parse(savedQuiz);
-          if (data.questions && data.questions.length > 0) {
-            setConfig(data.config);
-            setQuestions(data.questions);
-            setUserAnswers(data.userAnswers);
-            setCurrentIndex(data.currentIndex);
-            setQuizTimer(data.quizTimer);
-            setIsAnswered(data.isAnswered);
-            setIsReviewMode(data.isReviewMode);
-            setIsDailyChallenge(data.isDailyChallenge);
-            setIsBookmarksReview(data.isBookmarksReview || false);
-            setScreen('QUIZ');
-            
-            // Set sync operations logs to load from exact state (RESUME_SESSION)
-            setSyncLog({
-              session_id: `SES-${Date.now().toString().slice(-4)}`,
-              operation: 'RESUME_SESSION',
-              current_index: data.currentIndex,
-              quiz_data: {
-                question: data.questions[data.currentIndex]?.question || "",
-                options: [
-                  data.questions[data.currentIndex]?.options.A || "",
-                  data.questions[data.currentIndex]?.options.B || "",
-                  data.questions[data.currentIndex]?.options.C || "",
-                  data.questions[data.currentIndex]?.options.D || ""
-                ],
-                correct_answer: data.questions[data.currentIndex]?.correctAnswer || "A",
-                is_custom: !!data.questions[data.currentIndex]?.is_custom
-              }
-            });
-            return;
-          }
-        }
+        setUser(JSON.parse(savedUser));
         setScreen('HOME');
       } catch (e) {
-        console.error("Failed to parse saved user or resume quiz on mount", e);
-        setScreen('HOME');
+        console.error("Failed to parse saved user", e);
       }
     }
   }, []);
@@ -199,8 +124,7 @@ export default function App() {
         quizTimer,
         isAnswered,
         isReviewMode,
-        isDailyChallenge,
-        isBookmarksReview
+        isDailyChallenge
       };
       localStorage.setItem('rpsc_current_quiz', JSON.stringify(progress));
     } else if (screen === 'RESULTS') {
@@ -221,7 +145,6 @@ export default function App() {
       setIsAnswered(data.isAnswered);
       setIsReviewMode(data.isReviewMode);
       setIsDailyChallenge(data.isDailyChallenge);
-      setIsBookmarksReview(data.isBookmarksReview || false);
       setScreen('QUIZ');
       feedback('success');
     }
@@ -269,7 +192,6 @@ export default function App() {
     setConfig(prev => ({ ...prev, subject }));
     setIsReviewMode(false);
     setIsDailyChallenge(false);
-    setIsBookmarksReview(false);
     setScreen('SETUP');
   };
 
@@ -280,36 +202,7 @@ export default function App() {
     setCurrentIndex(0);
     setIsReviewMode(true);
     setIsDailyChallenge(false);
-    setIsBookmarksReview(false);
     setScreen('QUIZ');
-  };
-
-  const startBookmarksReview = () => {
-    if (bookmarks.length === 0) return;
-    feedback('click');
-    setQuestions(bookmarks);
-    setUserAnswers(new Array(bookmarks.length).fill(null));
-    setCurrentIndex(0);
-    setIsReviewMode(true);
-    setIsDailyChallenge(false);
-    setIsBookmarksReview(true);
-    setScreen('QUIZ');
-  };
-
-  const toggleBookmark = (q: Question) => {
-    setBookmarks(prev => {
-      const exists = prev.some(b => b.id === q.id);
-      let updated;
-      if (exists) {
-        updated = prev.filter(b => b.id !== q.id);
-        feedback('click');
-      } else {
-        updated = [...prev, q];
-        feedback('success');
-      }
-      localStorage.setItem('rpsc_bookmarks', JSON.stringify(updated));
-      return updated;
-    });
   };
 
   useEffect(() => {
@@ -389,53 +282,6 @@ export default function App() {
     feedback('click');
     setLoading(true);
     setScreen('QUIZ');
-
-    // Token & Credit Saving: Prioritize cached data to save developer keys!
-    const cleanSubject = config.subject.replace(/\s+/g, '_');
-    const cleanTopic = (config.topic || 'General').replace(/\s+/g, '_');
-    const cacheKey = `rpsc_cache_${cleanSubject}_${cleanTopic}_${config.difficulty}_${config.pattern}_${config.language}`;
-    const cachedString = localStorage.getItem(cacheKey);
-
-    if (cachedString) {
-      try {
-        const cachedQuestions = JSON.parse(cachedString);
-        if (Array.isArray(cachedQuestions) && cachedQuestions.length > 0) {
-          // Cached quiz matches perfectly
-          setQuestions(cachedQuestions);
-          setUserAnswers(new Array(cachedQuestions.length).fill(null));
-          setCurrentIndex(0);
-          setQuizTimer(0);
-          setIsAnswered(false);
-
-          // Configure Sync Log output schema
-          const sessionId = `SES-CACHE-${Date.now().toString().slice(-4)}`;
-          setSyncLog({
-            session_id: sessionId,
-            operation: 'LOAD_CACHE',
-            current_index: 0,
-            quiz_data: {
-              question: cachedQuestions[0].question,
-              options: [
-                cachedQuestions[0].options.A,
-                cachedQuestions[0].options.B,
-                cachedQuestions[0].options.C,
-                cachedQuestions[0].options.D
-              ],
-              correct_answer: cachedQuestions[0].correctAnswer,
-              is_custom: !!cachedQuestions[0].is_custom
-            }
-          });
-
-          setLoading(false);
-          feedback('success');
-          return;
-        }
-      } catch (e) {
-        console.error("Cache fetch error, failing back to generation", e);
-      }
-    }
-
-    // Cache miss - perform fresh generation from Gemini AI
     try {
       const generatedQuestions = await generateQuizQuestions(config);
       setQuestions(generatedQuestions);
@@ -443,28 +289,6 @@ export default function App() {
       setCurrentIndex(0);
       setQuizTimer(0);
       setIsAnswered(false);
-
-      // Save to cache
-      localStorage.setItem(cacheKey, JSON.stringify(generatedQuestions));
-
-      // Configure Sync Log output schema
-      const sessionId = `SES-NEW-${Date.now().toString().slice(-4)}`;
-      setSyncLog({
-        session_id: sessionId,
-        operation: 'NEW_GENERATION',
-        current_index: 0,
-        quiz_data: {
-          question: generatedQuestions[0].question,
-          options: [
-            generatedQuestions[0].options.A,
-            generatedQuestions[0].options.B,
-            generatedQuestions[0].options.C,
-            generatedQuestions[0].options.D
-          ],
-          correct_answer: generatedQuestions[0].correctAnswer,
-          is_custom: !!generatedQuestions[0].is_custom
-        }
-      });
     } catch (error) {
       alert("Error generating quiz. Please try again.");
       setScreen('SETUP');
@@ -472,38 +296,6 @@ export default function App() {
       setLoading(false);
     }
   };
-
-  // Synchronically update Firestore State Sync Monitor
-  useEffect(() => {
-    if (screen === 'QUIZ' && questions.length > 0 && questions[currentIndex]) {
-      let activeOp: 'RESUME_SESSION' | 'POPUP_INJECT' | 'LOAD_CACHE' | 'NEW_GENERATION' = 'NEW_GENERATION';
-      
-      if (isBookmarksReview) {
-        activeOp = 'LOAD_CACHE';
-      } else if (questions[currentIndex].is_custom) {
-        activeOp = 'POPUP_INJECT';
-      } else if (syncLog?.operation) {
-        activeOp = syncLog.operation;
-      }
-      
-      setSyncLog(prev => ({
-        session_id: prev?.session_id || `SES-${Date.now().toString().slice(-4)}`,
-        operation: activeOp,
-        current_index: currentIndex,
-        quiz_data: {
-          question: questions[currentIndex].question,
-          options: [
-            questions[currentIndex].options.A,
-            questions[currentIndex].options.B,
-            questions[currentIndex].options.C,
-            questions[currentIndex].options.D
-          ],
-          correct_answer: questions[currentIndex].correctAnswer,
-          is_custom: !!questions[currentIndex].is_custom
-        }
-      }));
-    }
-  }, [currentIndex, questions, screen]);
 
   const handleSelectAnswer = (answer: string) => {
     if (isAnswered) return;
@@ -523,58 +315,6 @@ export default function App() {
         if (prev.find(m => m.id === questions[currentIndex].id)) return prev;
         return [...prev, questions[currentIndex]];
       });
-    }
-  };
-
-  const injectCustomQuestion = async (text: string) => {
-    if (!text.trim()) return;
-    feedback('click');
-    setInjecting(true);
-    try {
-      // Call core formatter
-      const newQuestion = await formatCustomQuestionToMcq(text, config);
-      
-      // Inject directly as the next question in the active questions array
-      const updatedQuestions = [...questions];
-      const targetIndex = currentIndex + 1;
-      updatedQuestions.splice(targetIndex, 0, newQuestion);
-      
-      const updatedUserAnswers = [...userAnswers];
-      updatedUserAnswers.splice(targetIndex, 0, null);
-      
-      // Update states
-      setQuestions(updatedQuestions);
-      setUserAnswers(updatedUserAnswers);
-      setCurrentIndex(targetIndex);
-      setIsAnswered(false);
-      setCustomInputPrompt('');
-      setShowInjectModal(false);
-      
-      // Log custom sync operation
-      const sesId = syncLog?.session_id || `SES-${Date.now().toString().slice(-4)}`;
-      setSyncLog({
-        session_id: sesId,
-        operation: 'POPUP_INJECT',
-        current_index: targetIndex,
-        quiz_data: {
-          question: newQuestion.question,
-          options: [
-            newQuestion.options.A,
-            newQuestion.options.B,
-            newQuestion.options.C,
-            newQuestion.options.D
-          ],
-          correct_answer: newQuestion.correctAnswer,
-          is_custom: true
-        }
-      });
-      
-      feedback('success');
-    } catch (e) {
-      console.error(e);
-      alert("Error injecting custom question. Please try again.");
-    } finally {
-      setInjecting(false);
     }
   };
 
@@ -709,7 +449,7 @@ export default function App() {
             className="flex flex-col h-full overflow-hidden"
           >
             {/* Header Navigation */}
-            <header className={`min-h-[3.5rem] md:h-20 py-2 md:py-0 flex flex-wrap gap-2 justify-between items-center px-2 md:px-8 shrink-0 relative z-20 transition-all duration-700 ${
+            <header className={`h-16 md:h-20 flex items-center justify-between px-4 md:px-8 shrink-0 relative z-20 transition-all duration-700 ${
               theme === 'rajasthan' 
                 ? 'bg-gradient-to-r from-rose-800 via-red-700 to-orange-600 text-white border-b-4 border-amber-600 shadow-lg' 
                 : 'bg-white/80 backdrop-blur-md border-b border-white/10'
@@ -728,7 +468,7 @@ export default function App() {
                   </div>
                 </div>
                 
-                <div className="flex flex-wrap items-center gap-1.5 md:gap-4">
+                <div className="flex items-center gap-2 md:gap-4">
                   {(screen === 'QUIZ' || screen === 'RESULTS') && (
                     <div className="flex flex-col items-end mr-1 md:mr-4">
                       <span className="hidden lg:block text-[9px] uppercase font-bold text-slate-400 tracking-widest whitespace-nowrap">Session Timer</span>
@@ -736,7 +476,7 @@ export default function App() {
                     </div>
                   )}
                   
-                  <div className="flex flex-wrap items-center gap-1 md:gap-2">
+                  <div className="flex items-center gap-1 md:gap-2">
                     <div className="hidden sm:flex items-center gap-1 px-2 md:px-3 py-1 bg-orange-500/10 border border-orange-500/10 rounded-full">
                       <span className="text-orange-500 animate-pulse text-[10px]">🔥</span>
                       <span className="text-[10px] md:text-xs font-bold text-orange-500">{streak}</span>
@@ -745,13 +485,13 @@ export default function App() {
                     <button 
                       onClick={toggleTheme}
                       title="Switch Theme"
-                      className={`flex items-center gap-1.5 px-2 md:px-5 py-1.5 md:py-2.5 rounded-full transition-all duration-700 shadow-lg border group relative overflow-hidden active:scale-95 ${
+                      className={`flex items-center gap-2 px-3 py-2 md:px-5 md:py-2.5 rounded-full transition-all duration-700 shadow-lg border group relative overflow-hidden active:scale-95 ${
                         theme === 'rajasthan' 
                           ? 'bg-rose-900/40 border-amber-500/50 text-amber-100 hover:bg-rose-900/60' 
                           : 'bg-white border-indigo-100 text-indigo-600 hover:border-indigo-300 hover:bg-indigo-50'
                       }`}
                     >
-                      <Palette size={14} className={`transition-all duration-500 group-hover:rotate-[30deg] ${theme === 'rajasthan' ? 'text-amber-400' : 'text-indigo-500'}`} />
+                      <Palette size={18} className={`transition-all duration-500 group-hover:rotate-[30deg] ${theme === 'rajasthan' ? 'text-amber-400' : 'text-indigo-500'}`} />
                       <span className={`text-[10px] md:text-sm font-bold transition-all duration-700 whitespace-nowrap ${
                         theme === 'rajasthan' 
                           ? 'font-serif italic text-amber-200 tracking-[0.15em] drop-shadow-sm' 
@@ -777,7 +517,7 @@ export default function App() {
                   <div className="hidden xs:block h-6 md:h-8 w-px bg-slate-200 mx-1 md:mx-2"></div>
 
                   {user && (
-                    <div className="flex items-center gap-1.5 md:gap-4">
+                    <div className="flex items-center gap-2 md:gap-4">
                       <div className="flex flex-col items-end hidden lg:flex">
                         <span className={`text-[10px] font-bold uppercase tracking-widest leading-none mb-1 ${theme === 'rajasthan' ? 'text-orange-200 opacity-80' : 'text-slate-400'}`}>Authenticated</span>
                         <span className={`text-xs font-bold ${theme === 'rajasthan' ? 'text-white' : 'text-main'}`}>{user.name}</span>
@@ -785,7 +525,7 @@ export default function App() {
                       <button 
                         onClick={handleLogout}
                         title="Logout"
-                        className={`p-1 md:p-2 transition-colors ${theme === 'rajasthan' ? 'text-white/70 hover:text-white' : 'text-slate-400 hover:text-red-500'}`}
+                        className={`p-1.5 md:p-2 transition-colors ${theme === 'rajasthan' ? 'text-white/70 hover:text-white' : 'text-slate-400 hover:text-red-500'}`}
                       >
                         <LogOut size={16} />
                       </button>
@@ -795,7 +535,7 @@ export default function App() {
                   {screen === 'QUIZ' && (
                     <button 
                       onClick={() => setScreen('RESULTS')}
-                      className="px-2 md:px-6 py-1 md:py-2 bg-slate-900 text-white text-[10px] md:text-sm font-semibold rounded hover:bg-slate-800 transition-colors shadow-sm ml-1 md:ml-4"
+                      className="px-3 md:px-6 py-1.5 md:py-2 bg-slate-900 text-white text-xs md:text-sm font-semibold rounded hover:bg-slate-800 transition-colors shadow-sm ml-1 md:ml-4"
                     >
                       Submit
                     </button>
@@ -803,7 +543,7 @@ export default function App() {
                   {screen === 'RESULTS' && (
                     <button 
                       onClick={() => setScreen('HOME')}
-                      className="px-2 md:px-6 py-1 md:py-2 bg-primary text-white text-[10px] md:text-sm font-semibold rounded hover:brightness-110 transition-all shadow-sm ml-1 md:ml-4"
+                      className="px-3 md:px-6 py-1.5 md:py-2 bg-primary text-white text-xs md:text-sm font-semibold rounded hover:brightness-110 transition-all shadow-sm ml-1 md:ml-4"
                     >
                       Exit
                     </button>
@@ -875,45 +615,338 @@ export default function App() {
               )}
 
               {/* Central Section */}
-              <section className="flex-1 bg-slate-50 overflow-y-auto px-4 md:px-12 py-8 md:py-12 flex flex-col pb-32 md:pb-12 border-l border-border-theme">
+              <section className="flex-1 bg-slate-50 overflow-y-auto px-4 md:px-12 py-8 md:py-12 flex flex-col pb-32 md:pb-12">
                 <AnimatePresence mode="wait">
                   {screen === 'HOME' && (
-                    <HomeDashboard 
-                      user={user}
-                      streak={streak}
-                      badges={badges}
-                      dailyDone={dailyDone}
-                      hasSavedQuiz={hasSavedQuiz}
-                      mistakes={mistakes}
-                      bookmarks={bookmarks}
-                      subjects={subjects}
-                      startSetup={startSetup}
-                      startDailyChallenge={startDailyChallenge}
-                      startMistakeReview={startMistakeReview}
-                      startBookmarksReview={startBookmarksReview}
-                      toggleBookmark={toggleBookmark}
-                      restoreQuiz={restoreQuiz}
-                      theme={theme}
-                    />
+                    <motion.div
+                      key="home-grid"
+                      initial={{ opacity: 0, scale: 0.98 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      className="max-w-4xl mx-auto w-full"
+                    >
+                      <div className="flex flex-col md:flex-row md:items-end justify-between mb-8 md:mb-10 gap-4 md:gap-6">
+                        <div>
+                          <span className="text-[10px] md:text-[11px] font-bold text-slate-500 uppercase tracking-[0.2em]">Select Examination Subject</span>
+                          <h2 className="text-2xl md:text-4xl font-display mt-1 md:mt-2 text-main italic">RPSC <span className="text-primary">Practice Portal</span></h2>
+                        </div>
+                        
+                        <div className="flex flex-wrap gap-3 md:gap-4 items-center">
+                          {streak > 0 && (
+                            <div className="flex items-center gap-2 px-4 py-2 bg-orange-50 border border-orange-200 rounded-2xl shadow-sm">
+                              <span className="text-xl">🔥</span>
+                              <div className="flex flex-col">
+                                <span className="text-[10px] font-bold text-orange-400 uppercase tracking-tighter">Current Streak</span>
+                                <span className="text-sm font-bold text-orange-700 leading-none">{streak} Days</span>
+                              </div>
+                            </div>
+                          )}
+
+                          {mistakes.length > 0 && (
+                            <button 
+                              onClick={startMistakeReview}
+                              className={`flex items-center gap-2 px-6 py-3 font-bold border-b-2 transition-all uppercase text-xs tracking-widest ${
+                                theme === 'rajasthan' 
+                                  ? 'bg-rose-800 text-white rounded-2xl border-rose-900 shadow-rose-900/20 shadow-lg' 
+                                  : 'bg-accent text-white rounded-sm border-accent/40 shadow-accent/20 shadow-lg'
+                              } hover:brightness-110`}
+                            >
+                              <BrainCircuit size={16} /> Review Mistakes ({mistakes.length})
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Gamification Row */}
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
+                        {/* Daily Challenge Card */}
+                        <div className={`col-span-1 md:col-span-2 p-5 md:p-8 rounded-3xl border-2 flex flex-col sm:flex-row items-center sm:items-stretch gap-6 relative overflow-hidden group ${
+                          dailyDone 
+                            ? 'bg-slate-50 border-slate-200 opacity-80' 
+                            : 'bg-gradient-to-br from-amber-500 to-orange-500 border-amber-600 text-white'
+                        }`}>
+                          <div className="flex-1 relative z-10 text-center sm:text-left">
+                            <div className="flex items-center justify-center sm:justify-start gap-2 mb-2">
+                              <Sun size={20} className={dailyDone ? 'text-slate-400' : 'text-white animate-spin-slow'} />
+                              <span className="text-[10px] font-bold uppercase tracking-widest opacity-80">Daily Challenge</span>
+                            </div>
+                            <h3 className="text-xl md:text-2xl font-display font-bold mb-2">10 MCQs Rapid Fire</h3>
+                            <p className={`text-xs md:text-sm mb-6 ${dailyDone ? 'text-slate-500' : 'text-white/80'}`}>
+                              {dailyDone ? 'You completed today\'s challenge! Return tomorrow.' : 'Finish in 5 minutes to earn the "Daily Warrior" badge.'}
+                            </p>
+                            
+                            {!dailyDone && (
+                              <button 
+                                onClick={startDailyChallenge}
+                                className="px-6 py-2.5 bg-white text-orange-600 font-bold text-xs uppercase tracking-widest rounded-xl hover:scale-105 active:scale-95 transition-all shadow-lg"
+                              >
+                                Start Challenge
+                              </button>
+                            )}
+                            {dailyDone && (
+                              <div className="flex items-center justify-center sm:justify-start gap-2 text-green-600 font-bold text-sm">
+                                <CheckCircle2 size={18} /> Completed 
+                              </div>
+                            )}
+                          </div>
+                          <div className={`w-24 h-24 md:w-32 md:h-32 flex items-center justify-center shrink-0 relative z-10 ${dailyDone ? 'grayscale opacity-20' : ''}`}>
+                             <div className="absolute inset-0 bg-white/20 rounded-full blur-2xl group-hover:scale-150 transition-transform duration-1000"></div>
+                             <Star size={48} className="text-white drop-shadow-lg md:hidden" />
+                             <Star size={64} className="text-white drop-shadow-lg hidden md:block" />
+                          </div>
+                        </div>
+
+                        {/* Resume / Badges Panel */}
+                        <div className="flex flex-col gap-6">
+                           {hasSavedQuiz && (
+                             <motion.button
+                               initial={{ x: 20, opacity: 0 }}
+                               animate={{ x: 0, opacity: 1 }}
+                               onClick={restoreQuiz}
+                               className="p-6 bg-slate-900 rounded-3xl text-white border border-slate-700 shadow-xl group relative overflow-hidden"
+                             >
+                                <div className="relative z-10">
+                                   <div className="flex items-center gap-2 mb-2">
+                                      <div className="w-2 h-2 rounded-full bg-primary animate-pulse"></div>
+                                      <span className="text-[10px] font-bold uppercase tracking-widest opacity-60">Active Session</span>
+                                   </div>
+                                   <h3 className="text-xl font-display font-bold mb-1">Resume Test</h3>
+                                   <p className="text-[10px] text-slate-400 italic">Curated: {config.subject}</p>
+                                </div>
+                                <Activity className="absolute -right-4 -bottom-4 text-white/5 group-hover:scale-110 transition-transform" size={100} />
+                             </motion.button>
+                           )}
+
+                           <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm flex-1">
+                           <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                             <Award size={14} /> Unlocked Badges
+                           </h3>
+                           <div className="flex flex-wrap gap-3">
+                             {badges.length === 0 ? (
+                               <p className="text-xs text-slate-400 italic">Complete quizzes to unlock achievement badges.</p>
+                             ) : (
+                               badges.map(b => (
+                                 <div key={b} className="group relative">
+                                   <div className="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center text-primary border border-primary/20 hover:bg-primary hover:text-white transition-all cursor-help shadow-sm">
+                                     <Award size={18} />
+                                   </div>
+                                   <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-slate-900 text-white text-[9px] rounded font-bold whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity">
+                                     {b}
+                                   </div>
+                                 </div>
+                               ))
+                             )}
+                           </div>
+                        </div>
+                      </div>
+
+                    </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {subjects.map((sub, idx) => (
+                          <motion.button
+                            key={sub.name}
+                            whileHover={{ y: -4, shadow: '0 10px 25px -5px rgba(0,0,0,0.1)' }}
+                            onClick={() => startSetup(sub.name)}
+                            className={`p-6 border text-left transition-all group ${
+                              theme === 'rajasthan' 
+                                ? 'bg-white rounded-3xl border-orange-200 shadow-md shadow-orange-100 hover:shadow-xl' 
+                                : 'bg-white border-slate-200'
+                            }`}
+                          >
+                            <div className={`w-10 h-10 ${
+                              theme === 'rajasthan' ? 'bg-rose-800' : (sub.color.includes('blue') ? 'bg-primary' : sub.color)
+                            } text-white flex items-center justify-center rounded-sm mb-4 group-hover:scale-110 transition-transform shadow-sm`}>
+                              <sub.icon size={20} />
+                            </div>
+                            <h3 className={`text-lg font-bold underline underline-offset-4 pointer-events-none ${
+                                theme === 'rajasthan' ? 'text-rose-900 decoration-orange-100 group-hover:decoration-rose-500' : 'text-slate-800 decoration-slate-200 group-hover:decoration-primary'
+                              }`}>{sub.name}</h3>
+                            <p className="text-sm text-slate-500 mt-2 italic pointer-events-none">{sub.desc}</p>
+                          </motion.button>
+                        ))}
+                      </div>
+                    </motion.div>
                   )}
 
                   {screen === 'SETUP' && (
-                    <SetupPanel 
-                      config={config}
-                      setConfig={setConfig}
-                      onBack={() => setScreen('HOME')}
-                      onStartQuiz={handleStartQuiz}
-                      subjects={subjects}
-                    />
+                    <motion.div
+                      key="setup-form"
+                      initial={{ opacity: 0, x: 20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      className="max-w-2xl mx-auto w-full"
+                    >
+                      <button 
+                        onClick={() => setScreen('HOME')}
+                        className="flex items-center text-[11px] font-bold text-slate-400 uppercase tracking-widest hover:text-primary transition-colors mb-8"
+                      >
+                        <ChevronLeft size={16} /> Back to Library
+                      </button>
+                      
+                      <div className={`p-6 md:p-10 ${
+                        theme === 'rajasthan' ? 'bg-white rounded-[2rem] border-2 border-amber-500 shadow-2xl' : 'bg-white border border-slate-200'
+                      }`}>
+                        <div className="mb-8 md:mb-10 flex flex-col md:flex-row border-b border-slate-100 pb-8">
+                           <div className={`w-12 h-12 md:w-14 md:h-14 ${
+                             theme === 'rajasthan' ? 'bg-rose-800' : (subjects.find(s => s.name === config.subject)?.color.includes('blue') ? 'bg-primary' : subjects.find(s => s.name === config.subject)?.color)
+                           } text-white flex items-center justify-center rounded-sm mx-auto md:ml-0 md:mr-6 mb-4 md:mb-0`}>
+                             {(() => {
+                               const SIcon = subjects.find(s => s.name === config.subject)?.icon || History;
+                               return <SIcon size={28} />;
+                             })()}
+                           </div>
+                           <div className="text-center md:text-left">
+                             <h2 className="text-2xl md:text-3xl font-display text-main">{config.subject}</h2>
+                             <p className="text-xs md:text-sm text-slate-500 italic">Configuration & AI Tuning</p>
+                           </div>
+                        </div>
+
+                    <div className="grid gap-6 md:gap-8">
+                          <div className="group">
+                             <label className="block text-[10px] md:text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-3">Exam Pattern Style</label>
+                             <div className="grid grid-cols-2 gap-2">
+                               {(['2012-2020', '2021-Present'] as ExamPattern[]).map(p => (
+                                 <button
+                                   key={p}
+                                   onClick={() => setConfig({ ...config, pattern: p })}
+                                   className={`py-2.5 md:py-3 border text-[10px] md:text-xs font-bold transition-all ${
+                                     config.pattern === p 
+                                       ? 'border-primary bg-primary text-white shadow-md' 
+                                       : 'border-slate-200 text-slate-500 hover:border-primary/20'
+                                   }`}
+                                 >
+                                   {p}
+                                 </button>
+                               ))}
+                             </div>
+                          </div>
+
+                          <div className="group">
+                             <label className="block text-[10px] md:text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-3">Quiz Language</label>
+                             <div className="grid grid-cols-3 gap-2">
+                               {(['English', 'Hindi', 'Hinglish'] as Language[]).map(lang => (
+                                 <button
+                                   key={lang}
+                                   onClick={() => setConfig({ ...config, language: lang })}
+                                   className={`py-2.5 md:py-3 border text-[10px] md:text-xs font-bold transition-all ${
+                                     config.language === lang 
+                                       ? 'border-primary bg-primary text-white shadow-md' 
+                                       : 'border-slate-200 text-slate-500 hover:border-primary/20'
+                                   }`}
+                                 >
+                                   {lang.toUpperCase()}
+                                 </button>
+                               ))}
+                             </div>
+                          </div>
+
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-8">
+                            <div>
+                               <label className="block text-[10px] md:text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-3">Difficulty Level</label>
+                               <select 
+                                 value={config.difficulty}
+                                 onChange={(e) => setConfig({ ...config, difficulty: e.target.value as Difficulty })}
+                                 className="w-full bg-slate-50 border border-slate-200 p-3 md:p-4 text-xs md:text-sm font-medium focus:border-primary outline-none appearance-none"
+                               >
+                                 <option value="Easy">EASY</option>
+                                 <option value="Medium">MEDIUM</option>
+                                 <option value="Hard">HARD</option>
+                               </select>
+                            </div>
+                            <div>
+                               <label className="block text-[10px] md:text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-3">Question Count</label>
+                               <select 
+                                 value={config.questionCount}
+                                 onChange={(e) => setConfig({ ...config, questionCount: parseInt(e.target.value) })}
+                                 className="w-full bg-slate-50 border border-slate-200 p-3 md:p-4 text-xs md:text-sm font-medium focus:border-primary outline-none appearance-none"
+                               >
+                                 <option value={5}>05 QUESTIONS</option>
+                                 <option value={10}>10 QUESTIONS</option>
+                                 <option value={15}>15 QUESTIONS</option>
+                               </select>
+                            </div>
+                          </div>
+
+                          <div>
+                             <label className="block text-[10px] md:text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-3">Syllabus Focus (Optional)</label>
+                             <input 
+                               type="text"
+                               placeholder="e.g. Geography of Aravalli..."
+                               value={config.topic}
+                               onChange={(e) => setConfig({ ...config, topic: e.target.value })}
+                               className="w-full bg-slate-800/5 border border-slate-200 p-3 md:p-4 text-xs md:text-sm font-medium focus:border-primary outline-none text-main"
+                             />
+                          </div>
+
+                          <button
+                            onClick={handleStartQuiz}
+                            className="bg-slate-900 text-white font-bold tracking-widest uppercase py-4 md:py-5 mt-4 hover:bg-primary transition-all shadow-xl shadow-slate-200 flex items-center justify-center gap-2 text-xs md:text-sm"
+                          >
+                            Generate Quiz <ChevronRight size={18} />
+                          </button>
+                        </div>
+                      </div>
+                    </motion.div>
                   )}
 
                   {screen === 'RULES' && (
-                    <RulesPanel 
-                      rulesAccepted={rulesAccepted}
-                      setRulesAccepted={setRulesAccepted}
-                      onBack={() => setScreen('SETUP')}
-                      onConfirm={confirmStartQuiz}
-                    />
+                    <motion.div
+                      key="rules"
+                      initial={{ opacity: 0, x: 20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      className="max-w-xl mx-auto w-full"
+                    >
+                      <div className={`p-8 md:p-12 ${
+                        theme === 'rajasthan' ? 'bg-white rounded-[2rem] border-2 border-amber-500 shadow-2xl shadow-amber-900/10' : 'bg-white border border-slate-200'
+                      }`}>
+                        <div className="flex items-center gap-4 mb-8">
+                           <div className="w-12 h-12 bg-primary/10 text-primary rounded-full flex items-center justify-center">
+                              <Info size={24} />
+                           </div>
+                           <div>
+                              <h2 className="text-2xl font-display font-bold text-main italic">Pre-Exam <span className="text-primary">Protocols</span></h2>
+                              <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">RPSC AI Compliance v2.4</p>
+                           </div>
+                        </div>
+
+                        <div className="space-y-6 mb-10">
+                           {[
+                             { icon: Timer, text: "The session is strictly timed. Auto-submit on expiry." },
+                             { icon: Star, text: "Focus entirely on the screen. Do not switch tabs." },
+                             { icon: BookOpen, text: "Instant AI feedback is available after selecting answers." },
+                             { icon: ShieldCheck, text: "Questions are generated based on RPSC official syllabus." }
+                           ].map((rule, i) => (
+                             <div key={i} className="flex gap-4 p-4 bg-slate-50 border border-slate-100 rounded-2xl group hover:bg-white hover:shadow-md transition-all">
+                                <rule.icon size={20} className="text-slate-400 shrink-0 group-hover:text-primary transition-colors" />
+                                <p className="text-sm text-slate-600 font-medium leading-relaxed">{rule.text}</p>
+                             </div>
+                           ))}
+                        </div>
+
+                        <label className="flex items-center gap-3 p-4 bg-primary/5 border border-primary/20 rounded-2xl cursor-pointer hover:bg-primary/10 transition-colors mb-8">
+                           <input 
+                             type="checkbox" 
+                             className="w-5 h-5 rounded border-primary text-primary focus:ring-primary shadow-sm"
+                             onChange={(e) => setRulesAccepted(e.target.checked)}
+                           />
+                           <span className="text-xs font-bold text-slate-700">I have read and understood the examination protocols.</span>
+                        </label>
+
+                        <div className="grid grid-cols-2 gap-4">
+                           <button 
+                             onClick={() => setScreen('SETUP')}
+                             className="py-4 border border-slate-200 rounded-xl font-bold uppercase text-[10px] tracking-widest text-slate-500 hover:bg-slate-50 transition-all active:scale-95"
+                           >
+                              Back
+                           </button>
+                           <button 
+                             disabled={!rulesAccepted}
+                             onClick={confirmStartQuiz}
+                             className="py-4 bg-primary text-white rounded-xl font-bold uppercase text-[10px] tracking-widest disabled:opacity-50 disabled:grayscale transition-all shadow-lg shadow-primary/20 hover:brightness-110 flex items-center justify-center gap-2 active:scale-95"
+                           >
+                              Proceed to Exam <ChevronRight size={14} />
+                           </button>
+                        </div>
+                      </div>
+                    </motion.div>
                   )}
 
                   {screen === 'QUIZ' && (
@@ -931,62 +964,30 @@ export default function App() {
                         </div>
                       ) : (
                         <>
-                          <div className="mb-8 relative pr-1">
-                            <div className="flex justify-between items-center gap-2 mb-4 px-4 md:px-0">
-                              <div className="flex items-center flex-wrap gap-2">
-                                <span className="px-3 py-1 bg-primary/10 text-primary text-[10px] font-bold rounded-sm uppercase tracking-widest">
-                                   {isReviewMode ? (isBookmarksReview ? 'Saved Bookmarks' : 'Mistake Notebook') : `${config.subject} • ${config.difficulty}`}
-                                </span>
-                                
-                                <AnimatePresence>
-                                  {consecutiveCorrect >= 3 && (
-                                    <motion.span 
-                                      initial={{ opacity: 0, x: -10 }}
-                                      animate={{ opacity: 1, x: 0 }}
-                                      exit={{ opacity: 0 }}
-                                      className="text-[10px] font-bold text-accent uppercase tracking-widest flex items-center gap-1 inline-flex"
-                                    >
-                                      <Zap size={10} /> AI: Leveling Up Challenge
-                                    </motion.span>
-                                  )}
-                                </AnimatePresence>
-                              </div>
-
-                              {questions[currentIndex] && (
-                                <div className="flex items-center gap-2 shrink-0">
-                                  <button
-                                    type="button"
-                                    onClick={() => setShowInjectModal(true)}
-                                    className="text-primary hover:bg-primary/5 transition-colors px-2.5 py-1.5 bg-white border border-primary/30 rounded-lg cursor-pointer flex items-center justify-center gap-1 shadow-sm shrink-0 font-bold text-[10px] uppercase tracking-wider"
-                                    title="Inject custom user question"
-                                  >
-                                    <BrainCircuit size={12} className="text-primary animate-pulse" /> Inject Custom MCQ
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => toggleBookmark(questions[currentIndex])}
-                                    className="text-slate-400 hover:text-amber-500 transition-colors p-1.5 bg-white border border-slate-200 rounded-full cursor-pointer flex items-center justify-center shadow-sm shrink-0"
-                                    title={bookmarks.some(b => b.id === questions[currentIndex].id) ? "Remove Bookmark" : "Bookmark Question"}
-                                  >
-                                    <Star 
-                                      size={15} 
-                                      className={`${
-                                        bookmarks.some(b => b.id === questions[currentIndex].id) 
-                                          ? "fill-amber-500 text-amber-500" 
-                                          : "text-slate-400"
-                                      } transition-all`}
-                                    />
-                                  </button>
-                                </div>
+                          <div className="mb-8 relative">
+                            <span className="px-3 py-1 bg-primary/10 text-primary text-[10px] font-bold rounded-sm uppercase tracking-widest">
+                               {isReviewMode ? 'Mistake Notebook' : `${config.subject} • ${config.difficulty}`}
+                            </span>
+                            
+                            <AnimatePresence>
+                              {consecutiveCorrect >= 3 && (
+                                <motion.span 
+                                  initial={{ opacity: 0, x: -10 }}
+                                  animate={{ opacity: 1, x: 0 }}
+                                  exit={{ opacity: 0 }}
+                                  className="ml-4 text-[10px] font-bold text-accent uppercase tracking-widest flex items-center gap-1 inline-flex"
+                                >
+                                  <Zap size={10} /> AI: Leveling Up Challenge
+                                </motion.span>
                               )}
-                            </div>
-                            <h2 className="text-lg md:text-xl font-semibold px-4 font-display mt-2 leading-snug md:leading-tight text-main italic">
+                            </AnimatePresence>
+                            <h2 className="text-xl md:text-3xl font-display mt-4 md:mt-6 leading-snug md:leading-tight text-main italic">
                                {questions[currentIndex]?.question}
                             </h2>
                           </div>
 
                 {/* Options Grid */}
-                <div className="grid grid-cols-1 gap-3 md:gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
                   {questions[currentIndex] && Object.entries(questions[currentIndex].options).map(([key, value]) => {
                     const isCorrect = key === questions[currentIndex].correctAnswer;
                     const isSelected = key === userAnswers[currentIndex];
@@ -1012,30 +1013,30 @@ export default function App() {
                         whileHover={!isAnswered ? { y: -4, scale: 1.01 } : {}}
                         whileTap={!isAnswered ? { scale: 0.98 } : {}}
                         onClick={() => handleSelectAnswer(key)}
-                        className={`flex items-center gap-3 md:gap-4 p-3 md:p-4 border transition-all text-left group relative min-h-[60px] ${
-                          theme === 'rajasthan' ? 'rounded-2xl' : 'rounded-xl'
+                        className={`flex items-center gap-5 p-5 md:p-6 border transition-all text-left group relative min-h-[80px] ${
+                          theme === 'rajasthan' ? 'rounded-3xl' : 'rounded-2xl'
                         } ${btnClass}`}
                       >
-                        <span className={`w-8 h-8 md:w-10 md:h-10 shrink-0 rounded-xl border-2 flex items-center justify-center font-bold text-sm md:text-base transition-all ${circleClass}`}>
+                        <span className={`w-10 h-10 md:w-12 md:h-12 shrink-0 rounded-xl border-2 flex items-center justify-center font-bold text-lg transition-all ${circleClass}`}>
                           {key}
                         </span>
-                        <span className={`text-sm md:text-base flex-1 leading-tight ${isSelected && !isAnswered ? 'font-bold' : 'font-medium'}`}>{value}</span>
+                        <span className={`text-base md:text-lg flex-1 leading-tight ${isSelected && !isAnswered ? 'font-bold' : 'font-medium'}`}>{value}</span>
                         {isAnswered && isCorrect && (
                           <motion.div 
                             initial={{ scale: 0 }}
                             animate={{ scale: 1 }}
-                            className="absolute right-3"
+                            className="absolute right-5"
                           >
-                            <CheckCircle2 className="text-primary" size={20} />
+                            <CheckCircle2 className="text-primary" size={24} />
                           </motion.div>
                         )}
                         {isAnswered && isSelected && !isCorrect && (
                           <motion.div 
                             initial={{ scale: 0 }}
                             animate={{ scale: 1 }}
-                            className="absolute right-3"
+                            className="absolute right-5"
                           >
-                            <XCircle className="text-red-500" size={20} />
+                            <XCircle className="text-red-500" size={24} />
                           </motion.div>
                         )}
                       </motion.button>
@@ -1247,18 +1248,162 @@ export default function App() {
                   )}
 
                   {screen === 'RESULTS' && (
-                    <ResultsPanel 
-                      questions={questions}
-                      config={config}
-                      getScore={getScore}
-                      getIncorrectCount={getIncorrectCount}
-                      getSkippedCount={getSkippedCount}
-                      quizTimer={quizTimer}
-                      formatTime={formatTime}
-                      theme={theme}
-                      handleStartQuiz={handleStartQuiz}
-                      setScreen={setScreen}
-                    />
+                    <motion.div
+                      key="results"
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      className="max-w-4xl mx-auto w-full"
+                    >
+                      <div className="text-center mb-10">
+                        <motion.div
+                          initial={{ scale: 0 }}
+                          animate={{ scale: 1 }}
+                          className="w-24 h-24 bg-primary text-white rounded-full flex items-center justify-center mx-auto mb-6 shadow-2xl shadow-primary/30"
+                        >
+                          <Trophy size={48} />
+                        </motion.div>
+                        <h2 className="text-4xl font-display font-bold italic text-main tracking-tight">Session <span className="text-primary">Completed!</span></h2>
+                        <p className="text-slate-500 mt-2 uppercase tracking-[0.3em] text-[10px] font-bold">Deep Performance Analysis Ready</p>
+                      </div>
+                      
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-10">
+                        <div className={`p-6 shadow-sm border ${
+                          theme === 'rajasthan' ? 'bg-white rounded-3xl border-amber-500' : 'bg-white border-slate-200'
+                        }`}>
+                          <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">Accuracy dashboard</h4>
+                          <div className="flex items-center gap-4">
+                            <div className="text-3xl font-bold font-mono text-slate-900">{getScore()}/{questions.length}</div>
+                            <div className="h-10 w-px bg-slate-100 mx-2"></div>
+                            <div className="flex-1">
+                               <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+                                 <motion.div 
+                                   initial={{ width: 0 }}
+                                   animate={{ width: `${(getScore() / questions.length) * 100}%` }}
+                                   className="h-full bg-primary"
+                                 />
+                               </div>
+                               <p className="text-[10px] text-slate-400 mt-2 font-bold uppercase">{Math.round((getScore() / questions.length) * 100)}% Match rate</p>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className={`p-6 shadow-sm border ${
+                          theme === 'rajasthan' ? 'bg-white rounded-3xl border-teal-600' : 'bg-white border-slate-200'
+                        }`}>
+                          <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">Detailed Performance</h4>
+                          <div className="grid grid-cols-3 gap-2">
+                             <div className="text-center">
+                                <p className="text-lg font-bold text-green-600">{getScore()}</p>
+                                <p className="text-[8px] uppercase font-bold text-slate-400">Correct</p>
+                             </div>
+                             <div className="text-center">
+                                <p className="text-lg font-bold text-red-500">{getIncorrectCount()}</p>
+                                <p className="text-[8px] uppercase font-bold text-slate-400">Wrong</p>
+                             </div>
+                             <div className="text-center">
+                                <p className="text-lg font-bold text-slate-400">{getSkippedCount()}</p>
+                                <p className="text-[8px] uppercase font-bold text-slate-400">Skipped</p>
+                             </div>
+                          </div>
+                        </div>
+
+                        <div className={`p-6 shadow-sm border ${
+                          theme === 'rajasthan' ? 'bg-white rounded-3xl border-teal-600' : 'bg-white border-slate-200'
+                        }`}>
+                          <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">Vitals & Pace</h4>
+                          <div className="flex items-center gap-4">
+                             <Timer className="text-slate-300" size={24} />
+                             <div>
+                                <span className="text-2xl font-mono font-bold text-main">{formatTime(quizTimer)}</span>
+                                <p className="text-[9px] text-slate-400 uppercase font-bold tracking-tighter">Total Duration</p>
+                             </div>
+                          </div>
+                        </div>
+
+                        <div className={`p-6 shadow-sm border md:col-span-2 lg:col-span-1 ${
+                          theme === 'rajasthan' ? 'bg-white rounded-3xl border-orange-500' : 'bg-white border-slate-200'
+                        }`}>
+                          <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">Study Insight</h4>
+                          <div className="flex items-start gap-3">
+                            <Zap size={16} className="text-accent shrink-0" />
+                            <p className="text-xs text-slate-500 italic leading-relaxed">
+                              Focus on <span className="text-main font-bold">"{config.subject}"</span>. Your response time was optimal, but consistency peaked in the first half.
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                        {/* Summary Card */}
+                        <div className={`p-6 md:p-10 text-white relative overflow-hidden flex flex-col justify-between min-h-[280px] md:h-80 shadow-2xl ${
+                          theme === 'rajasthan' ? 'bg-gradient-to-br from-rose-800 to-rose-950 rounded-[2rem]' : 'bg-brand-bg rounded-2xl'
+                        }`}>
+                           <div className="relative z-10">
+                             <h4 className="text-[10px] font-bold opacity-60 uppercase tracking-[0.3em] mb-2">Examination Score</h4>
+                             <p className="text-5xl md:text-7xl font-mono font-bold italic tracking-tighter">{getScore()} <span className="text-xl md:text-2xl opacity-40 font-serif not-italic">/ {questions.length}</span></p>
+                           </div>
+                           
+                           <div className="relative z-10">
+                              <div className="flex -space-x-2 mb-4">
+                                {[1, 2, 3, 4].map(i => (
+                                  <div key={i} className="w-8 h-8 rounded-full border-2 border-brand-bg bg-primary flex items-center justify-center text-[10px] font-bold">#{i}</div>
+                                ))}
+                                <div className="w-8 h-8 rounded-full border-2 border-brand-bg bg-slate-800 flex items-center justify-center text-[10px] font-bold hidden xs:flex">+RPSC</div>
+                              </div>
+                              <p className="text-xs md:text-sm font-light leading-relaxed text-slate-300 italic">You outperformed <span className="text-white font-bold">82% of peers</span> in the {config.difficulty} module.</p>
+                           </div>
+
+                           <div className="absolute -bottom-20 -right-20 w-64 h-64 bg-primary/20 rounded-full blur-[80px]"></div>
+                        </div>
+
+                        {/* Analysis Card */}
+                        <div className={`p-8 flex flex-col shadow-sm border ${
+                          theme === 'rajasthan' ? 'bg-white rounded-[2rem] border-amber-500' : 'bg-white border-slate-200 rounded-2xl'
+                        }`}>
+                           <h3 className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-6 border-b border-slate-50 pb-2 flex items-center gap-2">
+                             <Activity size={14} /> Subject Vitals
+                           </h3>
+                           <div className="space-y-6 flex-1">
+                             <div className="flex items-center justify-between group">
+                                <div className="flex items-center gap-3">
+                                   <div className="w-1.5 h-1.5 rounded-full bg-accent group-hover:scale-150 transition-transform"></div>
+                                   <span className="text-sm font-bold text-slate-700">MCQ Accuracy</span>
+                                </div>
+                                <span className="text-sm font-mono font-bold text-main">{Math.round((getScore() / questions.length) * 100)}%</span>
+                             </div>
+                             <div className="flex items-center justify-between group">
+                                <div className="flex items-center gap-3">
+                                   <div className="w-1.5 h-1.5 rounded-full bg-primary group-hover:scale-150 transition-transform"></div>
+                                   <span className="text-sm font-bold text-slate-700">Processing Pace</span>
+                                </div>
+                                <span className="text-sm font-mono font-bold text-main">{Math.round(quizTimer / questions.length)}s per item</span>
+                             </div>
+                             <div className="flex items-center justify-between group">
+                                <div className="flex items-center gap-3">
+                                   <div className="w-1.5 h-1.5 rounded-full bg-slate-300 group-hover:scale-150 transition-transform"></div>
+                                   <span className="text-sm font-bold text-slate-700">System Difficulty</span>
+                                </div>
+                                <span className="text-sm font-mono font-bold text-main italic px-2 bg-slate-100 rounded text-[10px] uppercase tracking-tighter">{config.difficulty}</span>
+                             </div>
+                           </div>
+
+                           <div className="mt-8 grid grid-cols-2 gap-4">
+                              <button 
+                                onClick={handleStartQuiz}
+                                className="touch-target bg-primary text-white font-bold text-[10px] uppercase tracking-widest py-4 rounded-xl hover:brightness-110 transition-all flex items-center justify-center gap-2 shadow-lg shadow-primary/20"
+                              >
+                                <RotateCcw size={14} /> Re-Generate
+                              </button>
+                              <button 
+                                onClick={() => setScreen('HOME')}
+                                className="touch-target bg-slate-900 text-white font-bold text-[10px] uppercase tracking-widest py-4 rounded-xl hover:bg-slate-800 transition-all flex items-center justify-center gap-2 shadow-lg"
+                              >
+                                Exit Session <ChevronRight size={14} />
+                              </button>
+                           </div>
+                        </div>
+                      </div>
+                    </motion.div>
                   )}
                 </AnimatePresence>
               </section>
@@ -1319,110 +1464,6 @@ export default function App() {
                 <RiverMap onClose={() => setIsMapOpen(false)} feedback={feedback} />
               )}
             </AnimatePresence>
-
-            {/* Custom Question Injection Modal */}
-            <AnimatePresence>
-              {showInjectModal && (
-                <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-                  <div className="bg-white rounded-3xl p-6 max-w-md w-full border border-slate-100 shadow-2xl relative animate-in zoom-in-95 duration-200">
-                    <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2 mb-2 font-display italic">
-                      <BrainCircuit className="text-primary animate-pulse" size={20} /> Pop-Up Question Injection
-                    </h3>
-                    <p className="text-xs text-slate-500 mb-4 leading-relaxed">
-                      Type a topic, concept, or specific custom syllabus question. The Core Android AI engine will automatically format it into an MCQ and inject it immediately into the active quiz list.
-                    </p>
-                    
-                    <textarea
-                      value={customInputPrompt}
-                      onChange={(e) => setCustomInputPrompt(e.target.value)}
-                      disabled={injecting}
-                      placeholder="e.g., Haldighati War consequence, or Maharana Pratap's lineage details..."
-                      rows={4}
-                      className="w-full text-sm p-3 border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary bg-slate-50 disabled:opacity-50 text-slate-800 font-medium"
-                    />
-                    
-                    <div className="flex justify-end gap-3 mt-6">
-                      <button
-                        type="button"
-                        disabled={injecting}
-                        onClick={() => {
-                          setShowInjectModal(false);
-                          setCustomInputPrompt('');
-                        }}
-                        className="px-4 py-2 border border-slate-200 hover:bg-slate-50 rounded-xl text-xs font-bold text-slate-500 transition-colors uppercase tracking-wider cursor-pointer disabled:opacity-50"
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        type="button"
-                        disabled={injecting || !customInputPrompt.trim()}
-                        onClick={() => injectCustomQuestion(customInputPrompt)}
-                        className="px-5 py-2 bg-primary text-white hover:bg-primary/90 rounded-xl text-xs font-bold transition-colors uppercase tracking-wider flex items-center gap-2 cursor-pointer disabled:opacity-50 shadow-md shadow-primary/25"
-                      >
-                        {injecting ? (
-                          <>
-                            <Loader2 size={12} className="animate-spin" /> Injected...
-                          </>
-                        ) : (
-                          'Format & Inject'
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </AnimatePresence>
-
-            {/* Core AI Engine: Firestore Sync Terminal */}
-            {syncLog && (
-              <div className="fixed bottom-24 right-4 z-40 max-w-sm w-full font-mono text-[10px] hidden md:block">
-                <div className="bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden text-left">
-                  <div 
-                    onClick={() => setShowSyncLogConsole(prev => !prev)}
-                    className="bg-slate-950 px-4 py-2 flex items-center justify-between border-b border-slate-800 cursor-pointer hover:bg-slate-900 transition-colors"
-                  >
-                    <div className="flex items-center gap-2 text-emerald-400 font-bold tracking-tight">
-                      <Activity size={10} className="animate-pulse" />
-                      <span>FIRESTORE SYNC MONITOR</span>
-                    </div>
-                    <span className="text-slate-500 uppercase font-bold tracking-widest text-[9px]">
-                      {showSyncLogConsole ? 'Collapse [-]' : 'Expand [+]'}
-                    </span>
-                  </div>
-                  
-                  {showSyncLogConsole && (
-                    <div className="p-3 text-emerald-300 overflow-hidden relative">
-                      <div className="flex justify-between items-center text-[8px] text-slate-400 border-b border-slate-800 pb-1.5 mb-2">
-                        <span>ACTIVE PATH: /sessions/{syncLog.session_id}</span>
-                        <span className="px-1.5 py-0.5 bg-emerald-950 text-emerald-400 rounded border border-emerald-900 font-bold uppercase tracking-widest">
-                          {syncLog.operation}
-                        </span>
-                      </div>
-                      
-                      <pre className="overflow-x-auto whitespace-pre-wrap max-h-40 leading-normal scrollbar-none font-mono text-[9px] text-left antialiased">
-                        {JSON.stringify({
-                          session_id: syncLog.session_id,
-                          operation: syncLog.operation,
-                          current_index: syncLog.current_index,
-                          quiz_data: {
-                            question: syncLog.quiz_data?.question,
-                            options: syncLog.quiz_data?.options,
-                            correct_answer: syncLog.quiz_data?.correct_answer,
-                            is_custom: syncLog.quiz_data?.is_custom
-                          }
-                        }, null, 2)}
-                      </pre>
-                      
-                      <div className="mt-2 pt-2 border-t border-slate-800 flex items-center justify-between text-[8px] text-slate-400">
-                        <span>sync_status: VERIFIED_SYNC</span>
-                        <span className="text-[9px] text-primary">● online</span>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
           </motion.div>
         )}
 

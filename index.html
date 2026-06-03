@@ -1,29 +1,6 @@
 <!doctype html>
 <html lang="en">
   <head>
-    <script>
-      // Safeguard against sandbox environments or extensions attempting to patch read-only window.fetch
-      (function() {
-        try {
-          const originalFetch = window.fetch;
-          if (originalFetch) {
-            let fetchVal = originalFetch;
-            Object.defineProperty(window, 'fetch', {
-              get: function() {
-                return fetchVal;
-              },
-              set: function(val) {
-                fetchVal = val;
-              },
-              configurable: true,
-              enumerable: true
-            });
-          }
-        } catch (e) {
-          console.warn("Could not redefine window.fetch accessor:", e);
-        }
-      })();
-    </script>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>RPSC AI-Quizzer</title>
