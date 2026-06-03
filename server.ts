@@ -912,7 +912,7 @@ Follow these rigid directives:
 
   // Diagnostic API Endpoint to check API keys health
   app.post("/api/check-keys-status", async (req, res) => {
-    console.log("[DIAGNOSTIC] Checking API keys status and connectivity...");
+    console.log("[Status] Checking API keys connectivity...");
     
     const primaryKey = getValidKey(process.env.GEMINI_API_KEY);
     const backupKey = getValidKey(process.env.BACKUP_GEMINI_API_KEY || process.env.GEMINI_API_KEY_BACKUP);
@@ -935,7 +935,7 @@ Follow these rigid directives:
 
       for (const model of testModels) {
         try {
-          console.log(`[DIAGNOSTIC] Calling primary Gemini API key using model ${model}...`);
+          console.log(`[Status] Call validator primary model ${model} for check...`);
           const ai = new GoogleGenAI({
             apiKey: primaryKey,
             httpOptions: { headers: { 'User-Agent': 'aistudio-build-diagnostics' } }
@@ -952,7 +952,6 @@ Follow these rigid directives:
             break;
           }
         } catch (err: any) {
-          console.warn(`[DIAGNOSTIC] Model ${model} test failed for primary key:`, err?.message || err);
           primaryLastErr = err;
         }
       }
@@ -989,7 +988,7 @@ Follow these rigid directives:
 
         for (const model of testModels) {
           try {
-            console.log(`[DIAGNOSTIC] Calling backup Gemini API key using model ${model}...`);
+            console.log(`[Status] Call validator backup model ${model} for check...`);
             const ai = new GoogleGenAI({
               apiKey: backupKey,
               httpOptions: { headers: { 'User-Agent': 'aistudio-build-diagnostics' } }
@@ -1006,7 +1005,6 @@ Follow these rigid directives:
               break;
             }
           } catch (err: any) {
-            console.warn(`[DIAGNOSTIC] Model ${model} test failed for backup key:`, err?.message || err);
             backupLastErr = err;
           }
         }
@@ -1042,7 +1040,7 @@ Follow these rigid directives:
 
       for (const model of testModels) {
         try {
-          console.log(`[DIAGNOSTIC] Calling OpenRouter API key using model ${model}...`);
+          console.log(`[Status] Call validator OpenRouter model ${model} for check...`);
           const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
             method: "POST",
             headers: {
@@ -1073,7 +1071,6 @@ Follow these rigid directives:
             throw new Error("Received an empty content payload back from OpenRouter.");
           }
         } catch (err: any) {
-          console.warn(`[DIAGNOSTIC] OpenRouter model ${model} test failed:`, err?.message || err);
           orLastErr = err;
         }
       }
