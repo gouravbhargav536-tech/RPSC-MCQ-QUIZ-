@@ -1,20 +1,6 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { motion } from 'motion/react';
-import { 
-  ChevronRight, 
-  Sun, 
-  Award, 
-  BrainCircuit, 
-  Activity, 
-  Star, 
-  ShieldCheck, 
-  Loader2, 
-  CheckCircle2, 
-  XCircle, 
-  AlertCircle, 
-  Key,
-  Terminal
-} from 'lucide-react';
+import { ChevronRight, Sun, Award, BrainCircuit, Activity, Star } from 'lucide-react';
 import { Subject, SubjectMeta, User, ThemeType, Question } from '../types';
 
 interface HomeDashboardProps {
@@ -52,35 +38,6 @@ export default function HomeDashboard({
   restoreQuiz,
   theme
 }: HomeDashboardProps) {
-  // Key diagnostics states
-  const [diagLoading, setDiagLoading] = useState(false);
-  const [diagResults, setDiagResults] = useState<any | null>(null);
-  const [showDiagPanel, setShowDiagPanel] = useState(false);
-
-  const runKeyDiagnostics = async () => {
-    setDiagLoading(true);
-    setDiagResults(null);
-    try {
-      const response = await fetch('/api/check-keys-status', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      });
-      if (!response.ok) {
-        throw new Error(`Diagnostic API returned error status: ${response.status}`);
-      }
-      const data = await response.json();
-      setDiagResults(data);
-    } catch (err: any) {
-      console.error("Failed running diagnostic checks:", err);
-      setDiagResults({
-        error: err?.message || "Could not reach diagnostic server."
-      });
-    } finally {
-      setDiagLoading(false);
-    }
-  };
   return (
     <motion.div
       key="home-grid"
@@ -227,149 +184,6 @@ export default function HomeDashboard({
                 </div>
               </div>
             ))}
-          </div>
-        )}
-      </div>
-
-      {/* API Connection Diagnostics Console */}
-      <div className="border border-border-theme bg-[var(--card-bg)] p-4 md:p-5 mb-5 text-left font-sans">
-        <div className="flex justify-between items-center border-b border-border-theme pb-2.5 mb-3">
-          <div className="flex items-center gap-1.5">
-            <ShieldCheck size={12} className="text-emerald-500 shrink-0" />
-            <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest select-none">
-              API Engine & Key Diagnostics
-            </h3>
-          </div>
-          <button
-            type="button"
-            onClick={runKeyDiagnostics}
-            disabled={diagLoading}
-            className={`text-[10px] font-bold border border-slate-900 px-3 py-1 uppercase tracking-wider transition-colors cursor-pointer flex items-center gap-1.5 ${
-              diagLoading ? 'bg-slate-100 text-slate-400 border-slate-300' : 'bg-slate-950 text-white hover:bg-slate-800'
-            }`}
-          >
-            {diagLoading && <Loader2 size={10} className="animate-spin" />}
-            {diagLoading ? 'Testing Live...' : 'Check API Keys Now'}
-          </button>
-        </div>
-
-        <p className="text-[11px] text-slate-500 leading-normal mb-3">
-          Verifies if your configured environment keys (Google Gemini & OpenRouter fallback) can connect successfully and possess enough credits to process RPSC syllabus requests.
-        </p>
-
-        {diagResults ? (
-          <div className="space-y-3 animate-fade-in">
-            {/* Primary Key */}
-            <div className={`p-3 border rounded-none ${diagResults.primaryGemini?.working ? 'border-green-200 bg-green-50/20' : 'border-slate-200 bg-slate-50/30'}`}>
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-bold text-slate-700 uppercase tracking-wide flex items-center gap-1">
-                  <Key size={10} className="text-slate-400" /> Primary Google SDK (GEMINI_API_KEY)
-                </span>
-                <span className={`px-2 py-0.5 text-[9px] font-bold uppercase tracking-widest rounded-none ${
-                  diagResults.primaryGemini?.working 
-                    ? 'bg-green-100 text-green-700' 
-                    : diagResults.primaryGemini?.configured 
-                      ? 'bg-red-100 text-red-700' 
-                      : 'bg-slate-100 text-slate-400'
-                }`}>
-                  {diagResults.primaryGemini?.working 
-                    ? 'Working perfectly' 
-                    : diagResults.primaryGemini?.configured 
-                      ? 'Failed' 
-                      : 'Not configured'}
-                </span>
-              </div>
-              <p className="text-[10px] text-slate-500 mt-1 leading-snug">
-                {diagResults.primaryGemini?.details}
-              </p>
-              {diagResults.primaryGemini?.error && (
-                <div className="mt-1.5 p-1.5 bg-red-50 border border-red-100 rounded-none text-[9px] font-mono text-red-600 break-words font-medium">
-                  Error Details: {diagResults.primaryGemini.error}
-                </div>
-              )}
-            </div>
-
-            {/* Backup Key */}
-            <div className={`p-3 border rounded-none ${diagResults.backupGemini?.working ? 'border-green-200 bg-green-50/20' : 'border-slate-200 bg-slate-50/30'}`}>
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-bold text-slate-700 uppercase tracking-wide flex items-center gap-1">
-                  <Key size={10} className="text-slate-400" /> Backup Google SDK (BACKUP_GEMINI_API_KEY)
-                </span>
-                <span className={`px-2 py-0.5 text-[9px] font-bold uppercase tracking-widest rounded-none ${
-                  diagResults.backupGemini?.working 
-                    ? 'bg-green-100 text-green-700' 
-                    : diagResults.backupGemini?.configured 
-                      ? 'bg-red-100 text-red-700' 
-                      : 'bg-slate-100 text-slate-400'
-                }`}>
-                  {diagResults.backupGemini?.working 
-                    ? 'Working perfectly' 
-                    : diagResults.backupGemini?.configured 
-                      ? 'Failed' 
-                      : 'Not configured'}
-                </span>
-              </div>
-              <p className="text-[10px] text-slate-500 mt-1 leading-snug">
-                {diagResults.backupGemini?.details}
-              </p>
-              {diagResults.backupGemini?.error && (
-                <div className="mt-1.5 p-1.5 bg-red-50 border border-red-100 rounded-none text-[9px] font-mono text-red-600 break-words font-medium">
-                  Error Details: {diagResults.backupGemini.error}
-                </div>
-              )}
-            </div>
-
-            {/* OpenRouter Key */}
-            <div className={`p-3 border rounded-none ${diagResults.openRouter?.working ? 'border-green-200 bg-green-50/20' : 'border-slate-200 bg-slate-50/30'}`}>
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-bold text-slate-700 uppercase tracking-wide flex items-center gap-1">
-                  <Terminal size={10} className="text-slate-400" /> OpenRouter Multi-LLM (OPENROUTER_API_KEY)
-                </span>
-                <span className={`px-2 py-0.5 text-[9px] font-bold uppercase tracking-widest rounded-none ${
-                  diagResults.openRouter?.working 
-                    ? 'bg-green-100 text-green-700' 
-                    : diagResults.openRouter?.configured 
-                      ? 'bg-red-100 text-red-700' 
-                      : 'bg-slate-100 text-slate-400'
-                }`}>
-                  {diagResults.openRouter?.working 
-                    ? 'Working perfectly' 
-                    : diagResults.openRouter?.configured 
-                      ? 'Failed' 
-                      : 'Not configured'}
-                </span>
-              </div>
-              <p className="text-[10px] text-slate-500 mt-1 leading-snug">
-                {diagResults.openRouter?.details}
-              </p>
-              {diagResults.openRouter?.error && (
-                <div className="mt-1.5 p-1.5 bg-red-50 border border-red-100 rounded-none text-[9px] font-mono text-red-600 break-words font-medium">
-                  Error Details: {diagResults.openRouter.error}
-                </div>
-              )}
-            </div>
-
-            {diagResults.error && (
-              <div className="flex items-center gap-1.5 text-red-500 text-[10px] font-bold">
-                <AlertCircle size={12} /> {diagResults.error}
-              </div>
-            )}
-
-            {/* Reassuring tips for candidates and administrators */}
-            <div className="p-2.5 bg-teal-50/70 border border-teal-100 text-[10px] text-teal-800 leading-relaxed font-sans">
-              <strong>💡 Live System Insight:</strong> Since your <strong>Primary Google SDK</strong> is active, the generator functions flawlessly. If you recently updated your API keys via Settings, please allow up to 60 seconds for the container environments to fully sync. If the <em>Backup Key</em> shows as expired, you can safely ignore it or clear/update it anytime.
-            </div>
-          </div>
-        ) : (
-          <div className="text-center py-5 border border-dashed border-slate-200 bg-slate-50/30 rounded-none">
-            <button
-              type="button"
-              onClick={runKeyDiagnostics}
-              className="text-[10px] text-slate-500 hover:text-slate-800 font-bold uppercase tracking-wider flex items-center gap-2 mx-auto cursor-pointer"
-            >
-              <Activity size={12} className="animate-pulse text-slate-400" />
-              Diagnostics Idle. Click to diagnose active connection keys.
-            </button>
           </div>
         )}
       </div>

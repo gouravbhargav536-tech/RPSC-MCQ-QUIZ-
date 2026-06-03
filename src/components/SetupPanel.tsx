@@ -80,26 +80,6 @@ export default function SetupPanel({
              </div>
           </div>
 
-          <div>
-             <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 select-none">Quiz Mode (Feedback)</label>
-             <div className="grid grid-cols-2 gap-1.5">
-               {(['Instant Feedback', 'Submit at End'] as const).map(mode => (
-                 <button
-                   key={mode}
-                   type="button"
-                   onClick={() => setConfig({ ...config, feedbackMode: mode })}
-                   className={`py-2 text-[10px] border font-bold transition-all uppercase tracking-wider rounded-none cursor-pointer ${
-                     (config.feedbackMode || 'Instant Feedback') === mode 
-                       ? 'border-slate-800 bg-slate-900 text-white' 
-                       : 'border-slate-200 text-slate-500 hover:border-slate-400 bg-[var(--card-bg)]'
-                   }`}
-                 >
-                   {mode}
-                 </button>
-               ))}
-             </div>
-          </div>
-
           <div className="grid grid-cols-2 gap-3">
             <div>
                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 select-none">Subject Difficulty</label>
