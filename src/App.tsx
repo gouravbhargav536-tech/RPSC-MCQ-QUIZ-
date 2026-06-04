@@ -36,8 +36,7 @@ import {
   Compass,
   User as UserIcon,
   Menu,
-  X,
-  Settings
+  X
 } from 'lucide-react';
 import { generateQuizQuestions } from './services/geminiService';
 import { Question, QuizConfig, Subject, Difficulty, Language, ThemeType, User, ExamPattern } from './types';
@@ -49,7 +48,6 @@ import { useFeedback } from './hooks/useFeedback';
 import { testFirebaseConnection, hasFirebaseVars } from './services/firebase';
 import { firebaseService } from './services/firebaseService';
 import { Play, Pause, Bookmark, Terminal, AlertCircle, ShieldAlert } from 'lucide-react';
-import ApiSettingsModal from './components/ApiSettingsModal';
 
 export default function App() {
   const [screen, setScreen] = useState<'LANDING' | 'INTRO' | 'AUTH' | 'HOME' | 'SETUP' | 'RULES' | 'QUIZ' | 'RESULTS'>('LANDING');
@@ -116,7 +114,6 @@ export default function App() {
   const [dailyDone, setDailyDone] = useState(false);
   const [isDailyChallenge, setIsDailyChallenge] = useState(false);
   const [isMapOpen, setIsMapOpen] = useState(false);
-  const [apiSettingsOpen, setApiSettingsOpen] = useState(false);
 
   const { feedback } = useFeedback();
 
@@ -680,120 +677,68 @@ export default function App() {
             className="flex flex-col h-full overflow-hidden"
           >
             {/* Header Navigation */}
-            <header className={`h-11 md:h-13 flex items-center justify-between px-3 md:px-6 shrink-0 relative z-20 transition-all duration-700 ${
+            <header className={`h-16 md:h-20 flex items-center justify-between px-4 md:px-8 shrink-0 relative z-20 transition-all duration-700 ${
               theme === 'rajasthan' 
-                ? 'bg-gradient-to-r from-rose-800 via-red-700 to-orange-600 text-white border-b-2 border-amber-600 shadow-md' 
-                : 'bg-white/95 backdrop-blur-md border-b border-slate-200'
+                ? 'bg-gradient-to-r from-rose-800 via-red-700 to-orange-600 text-white border-b-4 border-amber-600 shadow-lg' 
+                : 'bg-white/80 backdrop-blur-md border-b border-white/10'
             }`}>
-                <div className="flex items-center gap-2 md:gap-3 cursor-pointer" onClick={() => setScreen('HOME')}>
-                  <div className={`w-7 h-7 md:w-8 md:h-8 rounded-lg flex items-center justify-center font-bold text-sm md:text-base font-display shadow-md transition-transform active:scale-95 shrink-0 ${
+                <div className="flex items-center gap-3 md:gap-4 cursor-pointer" onClick={() => setScreen('HOME')}>
+                  <div className={`w-8 h-8 md:w-10 md:h-10 rounded-xl flex items-center justify-center font-bold text-lg md:text-xl font-display shadow-lg transition-transform active:scale-95 ${
                     theme === 'rajasthan' ? 'bg-white text-rose-800' : 'bg-primary text-white'
                   }`}>
-                    {theme === 'rajasthan' ? <Castle size={14} /> : 'A'}
+                    {theme === 'rajasthan' ? <Castle size={18} /> : 'A'}
                   </div>
-                  <div className="leading-tight">
-                    <h1 className={`text-xs md:text-base font-bold tracking-tight font-display ${theme === 'rajasthan' ? 'text-white' : ''}`}>
+                  <div>
+                    <h1 className={`text-base md:text-xl font-bold tracking-tight font-display ${theme === 'rajasthan' ? 'text-white' : ''}`}>
                       RPSC <span className={`${theme === 'rajasthan' ? 'text-amber-200' : 'text-primary'} underline decoration-2 underline-offset-4`}>AI-Quizzer</span>
                     </h1>
-                    {theme === 'rajasthan' && <p className="hidden md:block text-[7px] text-orange-100 uppercase tracking-widest font-bold font-sans">Royal Exam Portal</p>}
+                    {theme === 'rajasthan' && <p className="hidden md:block text-[8px] text-orange-100 uppercase tracking-widest font-bold">Royal Examination Portal</p>}
                   </div>
                 </div>
                 
-                <div className="flex items-center gap-2 md:gap-3">
+                <div className="flex items-center gap-2 md:gap-4">
                   {(screen === 'QUIZ' || screen === 'RESULTS') && (
-                    <div className="flex items-center gap-2 mr-1 md:mr-3 border-l border-slate-200/20 pl-2.5">
-                      <div className="flex flex-col items-end">
-                        <span className="hidden lg:block text-[8px] uppercase font-bold text-slate-400 tracking-wider whitespace-nowrap leading-none mb-0.5">
-                          {screen === 'QUIZ' ? 'Exam Time Left' : 'Time Elapsed'}
-                        </span>
-                        <div className="flex items-center gap-1">
-                          <Timer size={11} className={screen === 'QUIZ' && 1200 - quizTimer < 180 ? 'text-rose-500 animate-pulse' : theme === 'rajasthan' ? 'text-amber-200' : 'text-indigo-600'} />
-                          <span className={`text-[10px] md:text-base font-mono font-bold leading-none ${
-                            screen === 'QUIZ' 
-                              ? (1200 - quizTimer < 180 ? 'text-rose-500 font-extrabold animate-pulse' : theme === 'rajasthan' ? 'text-amber-200' : 'text-slate-800')
-                              : theme === 'rajasthan' ? 'text-white' : 'text-slate-800'
-                          }`}>
-                            {screen === 'QUIZ'
-                              ? `${Math.floor(Math.max(0, 1200 - quizTimer) / 60)}:${(Math.max(0, 1200 - quizTimer) % 60).toString().padStart(2, '0')}`
-                              : formatTime(quizTimer)
-                            }
-                          </span>
-                        </div>
-                      </div>
-                      
-                      {screen === 'QUIZ' && (
-                        <button
-                          onClick={() => {
-                            feedback('click');
-                            setIsPaused(true);
-                          }}
-                          title="Pause Exam"
-                          className={`w-6 h-6 rounded-full flex items-center justify-center transition-all cursor-pointer active:scale-90 border ${
-                            theme === 'rajasthan'
-                              ? 'bg-rose-950/40 border-amber-500/30 text-amber-100 hover:bg-rose-950/60'
-                              : 'bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200'
-                          }`}
-                        >
-                          <Pause size={10} />
-                        </button>
-                      )}
+                    <div className="flex flex-col items-end mr-1 md:mr-4">
+                      <span className="hidden lg:block text-[9px] uppercase font-bold text-slate-400 tracking-widest whitespace-nowrap">Session Timer</span>
+                      <span className="text-xs md:text-xl font-mono font-bold text-primary italic leading-none">{formatTime(quizTimer)}</span>
                     </div>
                   )}
                   
-                  <div className="flex items-center gap-1 md:gap-1.5 shrink-0">
+                  <div className="flex items-center gap-1 md:gap-2">
                     {/* diagnostics toggle */}
                     <button
                       onClick={() => setDiagnosticsOpen(!diagnosticsOpen)}
-                      className={`px-2 py-1 md:px-3 md:py-1.5 rounded-full border text-[9px] font-bold uppercase transition-all tracking-wider flex items-center gap-1 cursor-pointer shadow-sm ${
+                      className={`px-3 py-1.5 md:px-4 md:py-2 rounded-full border text-[10px] font-bold uppercase transition-all tracking-wider flex items-center gap-1.5 cursor-pointer shadow-sm ${
                         diagnosticsOpen 
-                          ? 'bg-amber-600 border-amber-500 text-white font-extrabold' 
+                          ? 'bg-amber-600 border-amber-500 text-white' 
                           : 'bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-800'
                       }`}
                     >
-                      <Terminal size={10} />
-                      <span className="hidden sm:inline">Audit</span>
+                      <Terminal size={12} />
+                      <span className="hidden xs:inline">System Audit</span>
                     </button>
 
-                    {/* API settings modal toggle */}
-                    <button
-                      onClick={() => {
-                        feedback('click');
-                        setApiSettingsOpen(true);
-                      }}
-                      title="API Settings"
-                      className={`px-2 py-1 md:px-3 md:py-1.5 rounded-full border text-[9px] font-bold uppercase transition-all tracking-wider flex items-center gap-1 cursor-pointer shadow-sm ${
-                        apiSettingsOpen
-                          ? 'bg-emerald-600 border-emerald-500 text-white font-extrabold'
-                          : theme === 'rajasthan'
-                            ? 'bg-amber-900/40 border-amber-500/50 text-amber-100 hover:bg-amber-900/60'
-                            : 'bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-800'
-                      }`}
-                    >
-                      <Settings size={10} />
-                      <span className="hidden sm:inline">API</span>
-                    </button>
-
-                    <div className="hidden md:flex items-center gap-1 px-2 py-1 bg-orange-500/10 border border-orange-500/10 rounded-full">
-                      <span className="text-orange-500 animate-pulse text-[9px]">🔥</span>
-                      <span className="text-[9px] font-bold text-orange-500">{streak}</span>
+                    <div className="hidden sm:flex items-center gap-1 px-2 md:px-3 py-1 bg-orange-500/10 border border-orange-500/10 rounded-full">
+                      <span className="text-orange-500 animate-pulse text-[10px]">🔥</span>
+                      <span className="text-[10px] md:text-xs font-bold text-orange-500">{streak}</span>
                     </div>
 
                     <button 
                       onClick={toggleTheme}
                       title="Switch Theme"
-                      className={`flex items-center gap-1 px-2 py-1 md:px-3 md:py-1.5 rounded-full transition-all duration-700 shadow-md border group relative overflow-hidden active:scale-95 ${
+                      className={`flex items-center gap-2 px-3 py-2 md:px-5 md:py-2.5 rounded-full transition-all duration-700 shadow-lg border group relative overflow-hidden active:scale-95 ${
                         theme === 'rajasthan' 
                           ? 'bg-rose-900/40 border-amber-500/50 text-amber-100 hover:bg-rose-900/60' 
                           : 'bg-white border-indigo-100 text-indigo-600 hover:border-indigo-300 hover:bg-indigo-50'
                       }`}
                     >
-                      <Palette size={11} className={`transition-all duration-500 group-hover:rotate-[30deg] ${theme === 'rajasthan' ? 'text-amber-400' : 'text-indigo-500'}`} />
-                      <span className={`text-[9px] font-bold transition-all duration-700 whitespace-nowrap ${
+                      <Palette size={18} className={`transition-all duration-500 group-hover:rotate-[30deg] ${theme === 'rajasthan' ? 'text-amber-400' : 'text-indigo-500'}`} />
+                      <span className={`text-[10px] md:text-sm font-bold transition-all duration-700 whitespace-nowrap ${
                         theme === 'rajasthan' 
-                          ? 'font-serif italic text-amber-200 tracking-wider' 
-                          : 'font-display uppercase tracking-wider text-indigo-700'
+                          ? 'font-serif italic text-amber-200 tracking-[0.15em] drop-shadow-sm' 
+                          : 'font-display uppercase tracking-widest text-indigo-700'
                       }`}>
-                        {theme === 'rajasthan' ? 'Royal' : 'Theme'}
+                        {theme === 'rajasthan' ? 'Royal Mode' : 'Switch Theme'}
                       </span>
                       
                       {theme === 'rajasthan' && (
@@ -1282,147 +1227,184 @@ export default function App() {
                         </motion.div>
                       ) : (
                         <>
-                          {/* 📖 PROFESSIONAL EXAM QUESTION LAYOUT */}
-                          <div className={`border overflow-hidden mb-4 ${
+                          {/* ⏱️ TIMED EXAMINATION HEADER */}
+                          <div className={`p-4 md:p-5 mb-6 border ${
                             theme === 'rajasthan' 
-                              ? 'bg-white rounded-2xl border-amber-500/40 shadow-sm' 
-                              : 'bg-white border-slate-200 rounded-xl shadow-sm'
+                              ? 'bg-amber-50/50 border-amber-300/40 rounded-3xl shadow-sm' 
+                              : 'bg-white/80 backdrop-blur-md border-slate-200/60 rounded-2xl shadow-sm'
                           }`}>
-                            
-                            {/* ℹ️ COMPACT EXAM INFORMATION BAR */}
-                            <div className="flex flex-wrap items-center justify-between gap-3 py-2 px-3 border-b border-dashed border-slate-205 bg-slate-50 text-xs font-semibold select-none">
-                              {/* Left Part: Question Id & Type */}
-                              <div className="flex items-center gap-2 text-slate-500">
-                                <span className="font-mono text-xs text-slate-800 border-r border-slate-200 pr-2">
-                                  Q. <span className="font-bold">{(currentIndex + 1).toString().padStart(2, '0')}</span> / {questions.length}
+                            <div className="flex items-center justify-between">
+                              {/* Left: Set detail and countdown timer */}
+                              <div className="flex items-center gap-3">
+                                <span className={`px-3 py-1 font-mono text-[11px] font-extrabold tracking-widest ${
+                                  theme === 'rajasthan' ? 'bg-amber-600 text-white' : 'bg-slate-900 text-teal-400'
+                                } rounded`}>
+                                  SET - 01
                                 </span>
-                                <span className="text-[10px] uppercase font-bold tracking-wider hidden xs:inline">
-                                  Single Choice MCQ
-                                </span>
+                                <div className="h-4 w-px bg-slate-300"></div>
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-sm md:text-base font-mono font-bold text-slate-700 animate-pulse tracking-wide whitespace-nowrap">
+                                    Time Left: {Math.floor(Math.max(0, 1200 - quizTimer) / 60)}:{(Math.max(0, 1200 - quizTimer) % 60).toString().padStart(2, '0')}
+                                  </span>
+                                </div>
                               </div>
-
-                              {/* Right Part: Marks, Neg Marks, and Bookmark (Save) Action */}
-                              <div className="flex items-center gap-1.5 md:gap-2">
-                                <span className="inline-flex items-center px-1.5 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200/30 rounded text-[9px] md:text-[10px] font-bold">
-                                  +1.00 Marks
-                                </span>
-                                <span className="inline-flex items-center px-1.5 py-0.5 bg-rose-50 text-rose-700 border border-rose-200/30 rounded text-[9px] md:text-[10px] font-bold">
-                                  -0.25 Neg
-                                </span>
-                                <button
-                                  onClick={async () => {
-                                    feedback('royal');
-                                    const isCurrentlyBookmarked = bookmarks[currentIndex];
-                                    setBookmarks(prev => ({ ...prev, [currentIndex]: !isCurrentlyBookmarked }));
-                                    
-                                    if (user && (user as any).uid) {
-                                      const q = questions[currentIndex];
-                                      const qId = q.id || `q-${currentIndex}`;
-                                      try {
-                                        if (!isCurrentlyBookmarked) {
-                                          await firebaseService.addBookmark((user as any).uid, qId, q);
-                                        } else {
-                                          await firebaseService.removeBookmark((user as any).uid, qId);
-                                        }
-                                      } catch (err) {
-                                        console.error("Failed to update bookmark in Firestore", err);
-                                      }
-                                    }
-                                  }}
-                                  className={`inline-flex items-center gap-1 px-2 py-0.5 text-[9px] md:text-[10px] font-bold uppercase tracking-wider rounded border transition-all cursor-pointer ${
-                                    bookmarks[currentIndex]
-                                      ? 'bg-amber-100 border-amber-400 text-amber-700 shadow-sm'
-                                      : 'bg-white border-slate-205 text-slate-500 hover:bg-slate-50'
-                                  }`}
-                                >
-                                  <Bookmark size={9} className={bookmarks[currentIndex] ? 'fill-amber-500 text-amber-500' : ''} />
-                                  <span>{bookmarks[currentIndex] ? 'Saved' : 'Save'}</span>
-                                </button>
-                              </div>
+                              
+                              {/* Right: Functional Pause button */}
+                              <button
+                                onClick={() => {
+                                  feedback('click');
+                                  setIsPaused(true);
+                                }}
+                                title="Pause Exam"
+                                className="w-10 h-10 rounded-full flex items-center justify-center bg-slate-100 hover:bg-slate-200 text-slate-700 transition-all cursor-pointer active:scale-90 shadow-sm border border-slate-200/50"
+                              >
+                                <Pause size={16} />
+                              </button>
                             </div>
 
-                            {/* 📝 QUESTION CONTENT AREA WITH PROPER SPACING */}
-                            <div className="p-4 md:p-6 flex flex-col">
-                              {/* Category Label Block */}
-                              <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-                                <span className="px-2.5 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-100 text-[10px] font-extrabold rounded uppercase tracking-wider">
-                                  {isReviewMode ? 'Notebook Review' : `${config.subject}`}
+                            {/* Question Type and Marking Scheme Sub-header */}
+                            <div className="flex flex-wrap items-center justify-between border-t border-slate-200/50 mt-4 pt-3 text-xs text-slate-500 font-semibold md:flex">
+                              <span className="uppercase tracking-widest text-[9px] text-slate-400">
+                                Question Type: Single Choice Mcq
+                              </span>
+                              
+                              <div className="flex items-center gap-2">
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-green-50 text-green-600 border border-green-200/30 rounded font-bold text-[10px]">
+                                  Correct: +1.00
                                 </span>
-                                
-                                <AnimatePresence>
-                                  {consecutiveCorrect >= 3 && (
-                                    <motion.span 
-                                      initial={{ opacity: 0, x: -10 }}
-                                      animate={{ opacity: 1, x: 0 }}
-                                      exit={{ opacity: 0 }}
-                                      className="text-[10px] font-bold text-amber-600 dark:text-amber-500 uppercase tracking-widest flex items-center gap-1 inline-flex"
-                                    >
-                                      <Zap size={10} className="fill-amber-500 text-amber-500" /> Leveling Up
-                                    </motion.span>
-                                  )}
-                                </AnimatePresence>
-                              </div>
-
-                              {/* Question display - Made Larger, Cleaner, High-Contrast */}
-                              <h2 className="text-base sm:text-lg md:text-xl font-bold leading-relaxed text-slate-800 tracking-tight border-l-4 border-indigo-650 pl-3 md:pl-4 mb-4 md:mb-6">
-                                {questions[currentIndex]?.question}
-                              </h2>
-
-                              {/* 🪟 DISTINCT VERTICAL OPTIONS GRID */}
-                              <div className="space-y-2 md:space-y-3">
-                                {questions[currentIndex] && Object.entries(questions[currentIndex].options).map(([key, value]) => {
-                                  const isCorrect = key === questions[currentIndex].correctAnswer;
-                                  const isSelected = key === userAnswers[currentIndex];
-                                  
-                                  let btnClass = "border-slate-200 bg-white hover:border-indigo-500 shadow-sm hover:bg-slate-50/50";
-                                  let keyBadgeClass = "bg-slate-100 text-slate-700 border-slate-200 group-hover:bg-indigo-600 group-hover:text-white group-hover:border-indigo-600";
-
-                                  if (isAnswered) {
-                                    if (isCorrect) {
-                                      btnClass = "border-emerald-500 bg-emerald-50/30 shadow-sm pointer-events-none ring-2 ring-emerald-500/20";
-                                      keyBadgeClass = "bg-emerald-500 text-white border-emerald-500 scale-105";
-                                    } else if (isSelected) {
-                                      btnClass = "border-rose-400 bg-rose-50/30 pointer-events-none ring-2 ring-rose-500/10";
-                                      keyBadgeClass = "bg-rose-500 text-white border-rose-500";
-                                    } else {
-                                      btnClass = "opacity-50 pointer-events-none border-slate-150 bg-white shadow-none";
-                                      keyBadgeClass = "bg-slate-100 text-slate-400 border-slate-200";
-                                    }
-                                  }
-
-                                  return (
-                                    <motion.button
-                                      key={key}
-                                      whileHover={!isAnswered ? { x: 4 } : {}}
-                                      whileTap={!isAnswered ? { scale: 0.99 } : {}}
-                                      onClick={() => handleSelectAnswer(key)}
-                                      className={`w-full flex items-center gap-3 p-3 md:p-3.5 border transition-all text-left group relative min-h-[50px] ${
-                                        theme === 'rajasthan' ? 'rounded-xl' : 'rounded-lg'
-                                      } ${btnClass}`}
-                                    >
-                                      <span className={`w-7 h-7 shrink-0 rounded-md border flex items-center justify-center font-mono font-bold text-xs tracking-wide transition-all ${keyBadgeClass}`}>
-                                        {key}
-                                      </span>
-                                      <span className={`text-sm sm:text-base flex-1 leading-normal text-slate-700 ${isSelected && !isAnswered ? 'font-bold text-slate-900' : 'font-medium'}`}>
-                                        {value}
-                                      </span>
-                                      
-                                      {isAnswered && isCorrect && (
-                                        <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="shrink-0 text-emerald-600">
-                                          <CheckCircle2 size={16} />
-                                        </motion.div>
-                                      )}
-                                      {isAnswered && isSelected && !isCorrect && (
-                                        <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="shrink-0 text-rose-600">
-                                          <XCircle className="text-rose-500" size={16} />
-                                        </motion.div>
-                                      )}
-                                    </motion.button>
-                                  );
-                                })}
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-red-50 text-red-600 border border-red-200/30 rounded font-bold text-[10px]">
+                                  Incorrect: -0.25
+                                </span>
                               </div>
                             </div>
                           </div>
+                          {/* 📖 QUESTION CONTAINER LAYOUT */}
+                          <div className={`p-6 md:p-8 border mb-6 ${
+                            theme === 'rajasthan' 
+                              ? 'bg-white rounded-3xl border-amber-500/40 shadow-sm' 
+                              : 'bg-white border-slate-200/60 rounded-2xl shadow-sm'
+                          }`}>
+                            <div className="flex items-center justify-between border-b border-slate-100 pb-4 mb-6">
+                              {/* Left index */}
+                              <span className="text-[11px] font-bold uppercase tracking-widest text-slate-400">
+                                Question No.: <span className="text-slate-800 font-mono text-xs font-semibold">{currentIndex + 1}</span> of {questions.length}
+                              </span>
+
+                              {/* Right: SAVE bookmark button */}
+                              <button
+                                onClick={async () => {
+                                  feedback('royal');
+                                  const isCurrentlyBookmarked = bookmarks[currentIndex];
+                                  setBookmarks(prev => ({ ...prev, [currentIndex]: !isCurrentlyBookmarked }));
+                                  
+                                  if (user && (user as any).uid) {
+                                    const q = questions[currentIndex];
+                                    const qId = q.id || `q-${currentIndex}`;
+                                    try {
+                                      if (!isCurrentlyBookmarked) {
+                                        await firebaseService.addBookmark((user as any).uid, qId, q);
+                                      } else {
+                                        await firebaseService.removeBookmark((user as any).uid, qId);
+                                      }
+                                    } catch (err) {
+                                      console.error("Failed to update bookmark in Firestore", err);
+                                    }
+                                  }
+                                }}
+                                className={`flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest rounded-lg border transition-all ${
+                                  bookmarks[currentIndex]
+                                    ? 'bg-amber-50 border-amber-400 text-amber-700 shadow-sm'
+                                    : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100'
+                                }`}
+                              >
+                                <Bookmark size={12} className={bookmarks[currentIndex] ? 'fill-amber-500 text-amber-500' : ''} />
+                                <span>{bookmarks[currentIndex] ? 'Saved' : 'Save'}</span>
+                              </button>
+                            </div>
+
+                            {/* Question Title & Rendering details */}
+                            <div className="relative">
+                              <span className="absolute left-0 top-0.5 px-2 py-0.5 bg-primary/10 text-primary text-[9px] font-extrabold rounded-sm uppercase tracking-widest">
+                                {isReviewMode ? 'Notebook Review' : `${config.subject}`}
+                              </span>
+                              
+                              <AnimatePresence>
+                                {consecutiveCorrect >= 3 && (
+                                  <motion.span 
+                                    initial={{ opacity: 0, x: -10 }}
+                                    animate={{ opacity: 1, x: 0 }}
+                                    exit={{ opacity: 0 }}
+                                    className="absolute right-0 top-0.5 text-[9px] font-extrabold text-accent uppercase tracking-widest flex items-center gap-1 inline-flex"
+                                  >
+                                    <Zap size={9} /> Leveling Up
+                                  </motion.span>
+                                )}
+                              </AnimatePresence>
+                              
+                              {/* Question display */}
+                              <h2 className="text-xl md:text-2xl font-medium mt-8 md:mt-10 leading-relaxed text-slate-800 tracking-normal border-l-4 border-slate-205 pl-4">
+                                {questions[currentIndex]?.question}
+                              </h2>
+                            </div>
+
+                            {/* 📐 SPARTAN SPACIOUS LAYOUT SEPARATOR MARGIN */}
+                            {/* Insert significant padding (32px to 48px) between question text and first option */}
+                            <div className="h-10 md:h-12"></div>
+
+                            {/* 🪟 DISTINCT VERTICAL OPTIONS GRID */}
+                            <div className="space-y-4">
+                  {questions[currentIndex] && Object.entries(questions[currentIndex].options).map(([key, value]) => {
+                    const isCorrect = key === questions[currentIndex].correctAnswer;
+                    const isSelected = key === userAnswers[currentIndex];
+                    
+                    let btnClass = "border-slate-200/85 bg-white hover:border-primary shadow-sm hover:bg-slate-50/45";
+                    let keyBadgeClass = "bg-slate-100 text-slate-700 border-slate-200 group-hover:bg-primary group-hover:text-white group-hover:border-primary";
+
+                    if (isAnswered) {
+                      if (isCorrect) {
+                        btnClass = "border-primary bg-primary/5 shadow-lg pointer-events-none ring-2 ring-primary/20";
+                        keyBadgeClass = "bg-primary text-white border-primary scale-105";
+                      } else if (isSelected) {
+                        btnClass = "border-red-400 bg-red-100/30 pointer-events-none";
+                        keyBadgeClass = "bg-red-500 text-white border-red-500";
+                      } else {
+                        btnClass = "opacity-40 grayscale pointer-events-none border-slate-105 bg-white shadow-none";
+                        keyBadgeClass = "bg-slate-100 text-slate-400 border-slate-200";
+                      }
+                    }
+
+                    return (
+                      <motion.button
+                        key={key}
+                        whileHover={!isAnswered ? { x: 4 } : {}}
+                        whileTap={!isAnswered ? { scale: 0.99 } : {}}
+                        onClick={() => handleSelectAnswer(key)}
+                        className={`w-full flex items-center gap-4 p-4 md:p-5 border transition-all text-left group relative min-h-[64px] ${
+                          theme === 'rajasthan' ? 'rounded-2xl' : 'rounded-xl'
+                        } ${btnClass}`}
+                      >
+                        <span className={`w-8 h-8 shrink-0 rounded-lg border flex items-center justify-center font-mono font-extrabold text-sm tracking-widest transition-all ${keyBadgeClass}`}>
+                          {key}
+                        </span>
+                        <span className={`text-base flex-1 leading-relaxed text-slate-700 ${isSelected && !isAnswered ? 'font-semibold text-slate-800' : 'font-medium'}`}>
+                          {value}
+                        </span>
+                        
+                        {isAnswered && isCorrect && (
+                          <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="absolute right-4 shrink-0">
+                            <CheckCircle2 className="text-primary" size={20} />
+                          </motion.div>
+                        )}
+                        {isAnswered && isSelected && !isCorrect && (
+                          <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="absolute right-4 shrink-0">
+                            <XCircle className="text-red-500" size={20} />
+                          </motion.div>
+                        )}
+                      </motion.button>
+                    );
+                  })}
+                </div>
+              </div>
 
                 {/* ⚙️ DESKTOP PREVIEW INFORMATION ROW */}
                 <div className="hidden md:flex items-center justify-between text-[11px] text-slate-400 uppercase font-semibold px-2 mb-6">
@@ -1432,8 +1414,8 @@ export default function App() {
 
                 {/* 📲 RESPONSIVE BOTTOM STICKY NAVIGATION BAR */}
                 {/* Persistent bottom touchscreen safe sticky element bar, fully accessible with >48px targets */}
-                <div className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-250/80 shadow-[0_-12px_40px_rgba(0,0,0,0.06)] py-3 px-3 md:px-6">
-                  <div className="max-w-3xl mx-auto flex items-center justify-between gap-3">
+                <div className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200/80 shadow-[0_-12px_40px_rgba(0,0,0,0.06)] py-4 px-4 md:px-8">
+                  <div className="max-w-3xl mx-auto flex items-center justify-between gap-4">
                     
                     {/* Left Action Button: Mark for Review & Next */}
                     <button 
@@ -1442,10 +1424,10 @@ export default function App() {
                         setMarkedForReview(prev => ({ ...prev, [currentIndex]: !prev[currentIndex] }));
                         nextQuestion();
                       }}
-                      className={`flex-1 h-[44px] sm:h-[48px] px-3 sm:px-4 rounded-xl font-bold uppercase text-[10px] sm:text-[11px] tracking-wider border transition-all active:scale-95 text-center flex items-center justify-center cursor-pointer ${
+                      className={`flex-1 h-[48px] px-4 rounded-xl font-bold uppercase text-[11px] tracking-wider border transition-all active:scale-95 text-center flex items-center justify-center ${
                         markedForReview[currentIndex]
-                          ? 'bg-amber-100/70 border-amber-300 text-amber-800'
-                          : 'bg-slate-100 hover:bg-slate-150 border-slate-205 text-slate-650'
+                          ? 'bg-amber-100/60 border-amber-300 text-amber-800'
+                          : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-600'
                       }`}
                     >
                       {markedForReview[currentIndex] ? '★ Marked for Review' : 'Mark for Review & Next'}
@@ -1457,11 +1439,11 @@ export default function App() {
                         feedback('click');
                         nextQuestion();
                       }}
-                      className="flex-1 h-[44px] sm:h-[48px] px-3 sm:px-6 text-white font-extrabold rounded-xl shadow-md uppercase text-[10px] sm:text-[11px] tracking-wider flex items-center justify-center gap-1 transition-all active:scale-95 cursor-pointer"
+                      className="flex-1 h-[48px] px-6 text-white font-extrabold rounded-xl shadow-md uppercase text-[11px] tracking-wider flex items-center justify-center gap-1.5 transition-all active:scale-95"
                       style={{ backgroundColor: '#00c5bc' }}
                     >
                       <span>{currentIndex === questions.length - 1 ? 'Finish Exam' : 'Save & Next'}</span>
-                      <ChevronRight size={14} />
+                      <ChevronRight size={16} />
                     </button>
                   </div>
                 </div>
@@ -1799,13 +1781,6 @@ export default function App() {
                 <RiverMap onClose={() => setIsMapOpen(false)} feedback={feedback} />
               )}
             </AnimatePresence>
-
-            <ApiSettingsModal 
-              isOpen={apiSettingsOpen} 
-              onClose={() => setApiSettingsOpen(false)} 
-              theme={theme} 
-              feedback={feedback} 
-            />
           </motion.div>
         )}
 

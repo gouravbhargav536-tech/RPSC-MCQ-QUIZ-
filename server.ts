@@ -23,46 +23,6 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' });
 });
 
-// Endpoint to validate a custom Gemini API key
-app.post('/api/validate-key', async (req, res) => {
-  try {
-    const { apiKey } = req.body;
-    if (!apiKey) {
-      return res.status(400).json({ error: 'API key is required' });
-    }
-
-    const testAi = new GoogleGenAI({
-      apiKey: apiKey.trim(),
-      httpOptions: {
-        headers: {
-          'User-Agent': 'aistudio-build',
-        }
-      }
-    });
-
-    const response = await testAi.models.generateContent({
-      model: 'gemini-3.5-flash',
-      contents: 'Respond with the word "OK"',
-      config: {
-        maxOutputTokens: 5,
-      }
-    });
-
-    if (response && response.text) {
-      return res.json({ valid: true });
-    } else {
-      throw new Error('Empty or invalid response received from test call.');
-    }
-  } catch (error: any) {
-    console.error('Error during key validation:', error);
-    const detailedMessage = error?.message || error?.statusText || String(error);
-    return res.status(400).json({ 
-      valid: false, 
-      error: detailedMessage
-    });
-  }
-});
-
 // Server-side RPSC quiz generation route
 app.post('/api/generate-quiz', async (req, res) => {
   try {
@@ -72,20 +32,6 @@ app.post('/api/generate-quiz', async (req, res) => {
     }
 
     const { subject, difficulty, language, questionCount, topic, pattern } = config;
-
-    const customApiKey = req.headers['x-custom-api-key'] as string | undefined;
-    let activeAi = ai;
-
-    if (customApiKey && customApiKey.trim()) {
-      activeAi = new GoogleGenAI({
-        apiKey: customApiKey.trim(),
-        httpOptions: {
-          headers: {
-            'User-Agent': 'aistudio-build',
-          }
-        }
-      });
-    }
 
     const patternScope = pattern === '2012-2020' 
       ? 'Old Pattern (2012–2020): Direct factual questions, simple recall-based.' 
@@ -124,7 +70,7 @@ app.post('/api/generate-quiz', async (req, res) => {
       - 'patternYear': Specific exam style (e.g. "RPSC 2024 Mixed").
     `;
 
-    const response = await activeAi.models.generateContent({
+    const response = await ai.models.generateContent({
       model: 'gemini-3.5-flash',
       contents: prompt,
       config: {

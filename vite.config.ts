@@ -14,8 +14,6 @@ export default defineConfig(({mode}) => {
     resolve: {
       alias: {
         '@': path.resolve(__dirname, 'src'),
-        'node-fetch': path.resolve(__dirname, 'src/stubs/node-fetch.ts'),
-        'https-proxy-agent': path.resolve(__dirname, 'src/stubs/https-proxy-agent.ts'),
       },
     },
     server: {

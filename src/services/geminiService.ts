@@ -3,15 +3,7 @@ import { Question, QuizConfig } from "../types";
 
 export async function generateQuizQuestions(config: QuizConfig): Promise<Question[]> {
   try {
-    const useCustomKey = localStorage.getItem('rpsc_use_custom_key') === 'true';
-    const customKey = localStorage.getItem('rpsc_custom_api_key') || '';
-    
-    const headers: Record<string, string> = {};
-    if (useCustomKey && customKey.trim()) {
-      headers['x-custom-api-key'] = customKey.trim();
-    }
-
-    const response = await axios.post('/api/generate-quiz', { config }, { headers });
+    const response = await axios.post('/api/generate-quiz', { config });
     const parsedQuestions = response.data.questions;
     
     if (!Array.isArray(parsedQuestions)) {
