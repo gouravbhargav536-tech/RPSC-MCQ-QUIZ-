@@ -1,0 +1,89 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 1. Global Reset Safety Net (Default Block All)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 2. Reuseable Primitive Definition Helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Validate User Profile Structure
+    function isValidUser(data) {
+      return data.name is string && data.name.size() >= 1 && data.name.size() <= 100
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 150
+        && (data.get('streak', 0) is int && data.get('streak', 0) >= 0)
+        && (data.get('quizCount', 0) is int && data.get('quizCount', 0) >= 0)
+        && (data.get('badges', []) is list)
+        && (data.get('lastQuizDate', '') is string)
+        && (data.get('lastDailyDate', '') is string)
+        && (!data.get('isAdmin', false) || data.get('isAdmin', false) == false);  // Users can't force self-assigned roles
+    }
+
+    // Validate Quiz Attempt Structure
+    function isValidQuizAttempt(data) {
+      return data.subject is string && data.subject.size() <= 100
+        && data.difficulty is string && data.difficulty.size() <= 20
+        && data.language is string && data.language.size() <= 20
+        && data.questionCount is int && data.questionCount > 0 && data.questionCount <= 100
+        && data.pattern is string && data.pattern.size() <= 30
+        && (data.topic == null || (data.topic is string && data.topic.size() <= 100))
+        && data.score is int && data.score >= 0 && data.score <= data.questionCount
+        && data.timeSpent is int && data.timeSpent >= 0
+        && data.createdAt == request.time;
+    }
+
+    // Validate Bookmark Structure
+    function isValidBookmark(data) {
+      return data.question is string && data.question.size() >= 1 && data.question.size() <= 1000
+        && data.correctAnswer is string && data.correctAnswer.size() == 1
+        && data.explanation is string && data.explanation.size() <= 5000
+        && (data.get('teacherInsight', '') is string && data.get('teacherInsight', '').size() <= 5000)
+        && (data.get('patternYear', '') is string && data.get('patternYear', '').size() <= 50)
+        && data.bookmarkedAt == request.time;
+    }
+
+    // 3. User Profiles Collection Rule
+    match /users/{userId} {
+      allow get: if isSignedIn() && isOwner(userId);
+      allow create: if isSignedIn() && isOwner(userId) && isValidId(userId)
+        && request.resource.data.createdAt == request.time
+        && isValidUser(request.resource.data);
+      allow update: if isSignedIn() && isOwner(userId)
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.email == resource.data.email  // Immutable key guard
+        && isValidUser(request.resource.data);
+      allow delete: if false;  // Profiles are permanent
+
+      // 4. Subcollection - Quiz Attempts (Immutable - Create Only)
+      match /quiz_attempts/{attemptId} {
+        allow get, list: if isSignedIn() && isOwner(userId);
+        allow create: if isSignedIn() && isOwner(userId) && isValidId(attemptId)
+          && isValidQuizAttempt(request.resource.data);
+        allow update, delete: if false;  // History is immutable
+      }
+
+      // 5. Subcollection - Bookmarks (Create / Delete Only)
+      match /bookmarks/{bookmarkId} {
+        allow get, list: if isSignedIn() && isOwner(userId);
+        allow create: if isSignedIn() && isOwner(userId) && isValidId(bookmarkId)
+          && isValidBookmark(request.resource.data);
+        allow delete: if isSignedIn() && isOwner(userId);
+        allow update: if false;  // Bookmarks are immutable and cannot be updated
+      }
+    }
+  }
+}
