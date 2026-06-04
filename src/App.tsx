@@ -274,7 +274,23 @@ export default function App() {
 
   const startSetup = (subject: Subject) => {
     feedback('click');
-    setConfig(prev => ({ ...prev, subject }));
+    setConfig(prev => ({
+      ...prev,
+      subject,
+      selectedSubjects: subject === 'Balanced Mock Test' 
+        ? [
+            'Rajasthan Current Affairs',
+            'National Current Affairs',
+            'Rajasthan GK',
+            'Indian GK',
+            'Mathematics',
+            'Science',
+            'Reasoning',
+            'Hindi',
+            'English'
+          ]
+        : undefined
+    }));
     setIsReviewMode(false);
     setIsDailyChallenge(false);
     setScreen('SETUP');
@@ -481,6 +497,7 @@ export default function App() {
   };
 
   const subjects: { name: Subject; icon: any; color: string; desc: string }[] = [
+    { name: 'Balanced Mock Test', icon: Trophy, color: 'bg-indigo-700', desc: 'Mix of multiple RPSC subjects evenly' },
     { name: 'Rajasthan Current Affairs', icon: Zap, color: 'bg-amber-600', desc: 'Sports, Politics, Schemes 2026' },
     { name: 'National Current Affairs', icon: Sun, color: 'bg-rose-600', desc: 'National & Global Events' },
     { name: 'Rajasthan GK', icon: History, color: 'bg-blue-600', desc: 'Geography, History, Culture' },
@@ -1040,6 +1057,57 @@ export default function App() {
                            </div>
                         </div>
 
+                        {config.subject === 'Balanced Mock Test' && (
+                          <div className="p-4 md:p-6 bg-slate-50 border border-slate-100 rounded-2xl mb-8">
+                            <label className="block text-[10px] md:text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-3">
+                              Subjects to Include in Mock Quiz (Mixed Evenly)
+                            </label>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-2">
+                              {[
+                                'Rajasthan Current Affairs',
+                                'National Current Affairs',
+                                'Rajasthan GK',
+                                'Indian GK',
+                                'Mathematics',
+                                'Science',
+                                'Reasoning',
+                                'Hindi',
+                                'English'
+                              ].map((sub) => {
+                                const isSelected = config.selectedSubjects?.includes(sub as Subject);
+                                return (
+                                  <button
+                                    key={sub}
+                                    onClick={() => {
+                                      feedback('click');
+                                      const current = config.selectedSubjects || [];
+                                      const next = current.includes(sub as Subject)
+                                        ? current.filter(s => s !== sub)
+                                         : [...current, sub as Subject];
+                                      setConfig({ ...config, selectedSubjects: next });
+                                    }}
+                                    className={`flex items-center gap-3 p-3 border rounded-xl text-left transition-all ${
+                                      isSelected
+                                        ? 'bg-indigo-50 border-indigo-200 text-indigo-950 font-semibold'
+                                        : 'bg-white border-slate-200 text-slate-500 hover:border-slate-300'
+                                    }`}
+                                  >
+                                    <div className={`w-4 h-4 rounded border flex items-center justify-center transition-all ${
+                                      isSelected ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-slate-300 text-transparent'
+                                     }`}>
+                                       <CheckCircle2 size={10} className="stroke-[3]" />
+                                    </div>
+                                    <span className="text-xs">{sub}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                            {(!config.selectedSubjects || config.selectedSubjects.length === 0) && (
+                              <p className="text-[10px] text-red-500 font-bold mt-2 uppercase">⚠️ Please select at least one subject!</p>
+                            )}
+                          </div>
+                        )}
+
                     <div className="grid gap-6 md:gap-8">
                           <div className="group">
                              <label className="block text-[10px] md:text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-3">Exam Pattern Style</label>
@@ -1118,8 +1186,9 @@ export default function App() {
                           </div>
 
                           <button
+                            disabled={config.subject === 'Balanced Mock Test' && (!config.selectedSubjects || config.selectedSubjects.length === 0)}
                             onClick={handleStartQuiz}
-                            className="bg-slate-900 text-white font-bold tracking-widest uppercase py-4 md:py-5 mt-4 hover:bg-primary transition-all shadow-xl shadow-slate-200 flex items-center justify-center gap-2 text-xs md:text-sm"
+                            className="w-full bg-slate-900 text-white font-bold tracking-widest uppercase py-4 md:py-5 mt-4 hover:bg-primary disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-slate-900 transition-all shadow-xl shadow-slate-200 flex items-center justify-center gap-2 text-xs md:text-sm"
                           >
                             Generate Quiz <ChevronRight size={18} />
                           </button>

@@ -31,7 +31,8 @@ export type Subject =
   | 'English'
   | 'Reasoning'
   | 'Rajasthan Current Affairs'
-  | 'National Current Affairs';
+  | 'National Current Affairs'
+  | 'Balanced Mock Test';
 
 export type ExamPattern = '2012-2020' | '2021-Present';
 
@@ -45,6 +46,7 @@ export interface QuizConfig {
   questionCount: number;
   pattern: ExamPattern;
   topic?: string;
+  selectedSubjects?: Subject[];
 }
 
 export interface QuizResult {
