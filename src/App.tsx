@@ -46,7 +46,6 @@ import AuthScreen from './components/AuthScreen';
 import RiverMap from './components/RiverMap';
 import { useFeedback } from './hooks/useFeedback';
 import { testFirebaseConnection, hasFirebaseVars } from './services/firebase';
-import { firebaseService } from './services/firebaseService';
 import { Play, Pause, Bookmark, Terminal, AlertCircle, ShieldAlert } from 'lucide-react';
 
 export default function App() {
@@ -139,56 +138,11 @@ export default function App() {
   useEffect(() => {
     if (user) {
       localStorage.setItem('rpsc_user', JSON.stringify(user));
-      
-      // Update local storage gamification stats if user profile fields are present
-      const u = user as any;
-      if (u.uid && u.uid !== 'local_temp_uid') {
-        const stats = {
-          streak: u.streak || 0,
-          badges: u.badges || [],
-          lastQuizDate: u.lastQuizDate || "",
-          lastDailyDate: u.lastDailyDate || "",
-          quizCount: u.quizCount || 0
-        };
-        localStorage.setItem('rpsc-gamification', JSON.stringify(stats));
-        setStreak(stats.streak);
-        setBadges(stats.badges);
-        if (stats.lastDailyDate === new Date().toDateString()) {
-          setDailyDone(true);
-        }
-      }
     } else {
       localStorage.removeItem('rpsc_user');
       localStorage.removeItem('rpsc_current_quiz');
     }
   }, [user]);
-
-  // Synchronize Firestore bookmarks with active quiz question checklist
-  useEffect(() => {
-    const restoreBookmarks = async () => {
-      if (user && (user as any).uid && questions.length > 0) {
-        try {
-          const dbBookmarks = await firebaseService.getBookmarks((user as any).uid);
-          const activeBookmarks: Record<number, boolean> = {};
-          questions.forEach((q, idx) => {
-            const qId = q.id || `q-${idx}`;
-            const sanitizedId = qId.replace(/[^a-zA-Z0-9_\-]/g, '_');
-            if (dbBookmarks[sanitizedId] !== undefined) {
-              activeBookmarks[idx] = true;
-            } else {
-              // fallback match on content
-              const match = Object.values(dbBookmarks).some(b => b.question === q.question);
-              if (match) activeBookmarks[idx] = true;
-            }
-          });
-          setBookmarks(activeBookmarks);
-        } catch (err) {
-          console.error("Failed to restore bookmarks from Firestore:", err);
-        }
-      }
-    };
-    restoreBookmarks();
-  }, [user, questions]);
 
   // Save quiz progress
   useEffect(() => {
@@ -304,7 +258,7 @@ export default function App() {
     }
   }, []);
 
-  const updateGamification = async (newScore: number, total: number) => {
+  const updateGamification = (newScore: number, total: number) => {
     const statsStr = localStorage.getItem('rpsc-gamification');
     let stats = statsStr ? JSON.parse(statsStr) : { streak: 0, badges: [], lastDailyDate: '', quizCount: 0 };
     
@@ -337,34 +291,6 @@ export default function App() {
     localStorage.setItem('rpsc-gamification', JSON.stringify(stats));
     setStreak(stats.streak);
     setBadges(stats.badges);
-
-    // Sync gamified profile details and quiz history directly to Firestore
-    if (user && (user as any).uid) {
-      try {
-        await firebaseService.saveQuizAttempt((user as any).uid, config, newScore, quizTimer);
-        
-        await mockAuth.updateProfile((user as any).uid, {
-          streak: stats.streak,
-          badges: stats.badges,
-          lastQuizDate: stats.lastQuizDate || "",
-          lastDailyDate: stats.lastDailyDate || "",
-          quizCount: stats.quizCount,
-        });
-
-        const updatedProfile = {
-          ...user,
-          streak: stats.streak,
-          badges: stats.badges,
-          lastQuizDate: stats.lastQuizDate || "",
-          lastDailyDate: stats.lastDailyDate || "",
-          quizCount: stats.quizCount,
-        };
-        setUser(updatedProfile);
-        localStorage.setItem('rpsc_user', JSON.stringify(updatedProfile));
-      } catch (err) {
-        console.error("Failed to sync score progression to Firestore db:", err);
-      }
-    }
   };
 
   useEffect(() => {
@@ -1292,24 +1218,9 @@ export default function App() {
 
                               {/* Right: SAVE bookmark button */}
                               <button
-                                onClick={async () => {
+                                onClick={() => {
                                   feedback('royal');
-                                  const isCurrentlyBookmarked = bookmarks[currentIndex];
-                                  setBookmarks(prev => ({ ...prev, [currentIndex]: !isCurrentlyBookmarked }));
-                                  
-                                  if (user && (user as any).uid) {
-                                    const q = questions[currentIndex];
-                                    const qId = q.id || `q-${currentIndex}`;
-                                    try {
-                                      if (!isCurrentlyBookmarked) {
-                                        await firebaseService.addBookmark((user as any).uid, qId, q);
-                                      } else {
-                                        await firebaseService.removeBookmark((user as any).uid, qId);
-                                      }
-                                    } catch (err) {
-                                      console.error("Failed to update bookmark in Firestore", err);
-                                    }
-                                  }
+                                  setBookmarks(prev => ({ ...prev, [currentIndex]: !prev[currentIndex] }));
                                 }}
                                 className={`flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest rounded-lg border transition-all ${
                                   bookmarks[currentIndex]
