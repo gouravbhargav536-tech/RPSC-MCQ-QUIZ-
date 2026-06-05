@@ -20,30 +20,30 @@ export default function AuthScreen({ onSuccess, onBack }: AuthScreenProps) {
 
   const content = {
     EN: {
-      loginTitle: "Welcome Back",
-      signupTitle: "Create your account",
-      nameLabel: "Full Name",
-      emailLabel: "Email Address",
-      passLabel: "Password",
-      loginBtn: "Sign In",
-      signupBtn: "Sign Up",
-      switchSignup: "Don't have an account? Sign Up",
-      switchLogin: "Already have an account? Sign In",
-      passHint: "Use at least 8 characters including a number",
-      back: "Back"
+      loginTitle: "Candidate Authentication",
+      signupTitle: "New Registrations System",
+      nameLabel: "Full Name (Candidate's Name)",
+      emailLabel: "Registered Email Address",
+      passLabel: "Access Pin/Password",
+      loginBtn: "Authenticate & Enter",
+      signupBtn: "Enroll & Register",
+      switchSignup: "New Candidate? Register Here",
+      switchLogin: "Registered Candidate? Sign-In Here",
+      passHint: "Secure credentials with minimum 8 characters",
+      back: "Return to Main"
     },
     HI: {
-      loginTitle: "आपका स्वागत है",
-      signupTitle: "अपना खाता बनाएं",
-      nameLabel: "पूरा नाम",
-      emailLabel: "ईमेल",
-      passLabel: "पासवर्ड",
-      loginBtn: "साइन इन करें",
-      signupBtn: "साइन अप",
-      switchSignup: "खाता नहीं है? साइन अप करें",
-      switchLogin: "पहले से खाता है? साइन इन करें",
-      passHint: "कम से कम 8 अक्षर सहित एक अंक शामिल करें",
-      back: "पीछे"
+      loginTitle: "अभ्यर्थी प्रमाणीकरण",
+      signupTitle: "नवीन पंजीकरण प्रणाली",
+      nameLabel: "पूरा नाम (अभ्यर्थी का नाम)",
+      emailLabel: "पंजीकृत ईमेल पता",
+      passLabel: "एक्सेस पिन/पासवर्ड",
+      loginBtn: "प्रत्यायन करें",
+      signupBtn: "नामांकन एवं पंजीकरण",
+      switchSignup: "नए अभ्यर्थी? यहाँ पंजीकरण करें",
+      switchLogin: "पंजीकृत अभ्यर्थी? यहाँ लॉग-इन करें",
+      passHint: "कम से कम 8 अक्षर का सुरक्षित पासवर्ड प्रविष्ट करें",
+      back: "मुख्य पृष्ठ पर लौटें"
     }
   };
 
@@ -71,43 +71,37 @@ export default function AuthScreen({ onSuccess, onBack }: AuthScreenProps) {
   };
 
   return (
-    <div className="min-h-screen bg-bg-page flex flex-col p-6 items-center justify-center relative overflow-hidden">
-      {/* Background Decor (Geometric Balance Style) */}
-      <div className="absolute top-0 left-0 w-full h-full pointer-events-none">
-        <div className="absolute top-[-100px] left-[-100px] w-[500px] h-[500px] bg-primary/10 rounded-full blur-[120px]" />
-        <div className="absolute bottom-[-100px] right-[-100px] w-[600px] h-[600px] bg-accent/10 rounded-full blur-[150px]" />
-      </div>
-
-      {/* Mobile Top Nav */}
-      <div className="absolute top-4 sm:top-8 left-4 sm:left-8 right-4 sm:right-8 flex items-center justify-between z-10">
+    <div className="min-h-screen bg-page flex flex-col p-4 items-center justify-center relative">
+      
+      {/* Top action bar */}
+      <div className="w-full max-w-sm flex items-center justify-between mb-4">
         <button 
+          type="button"
           onClick={onBack}
-          className="flex items-center gap-2 text-slate-500 hover:text-primary transition-colors font-bold uppercase text-[10px] sm:text-xs tracking-widest"
+          className="flex items-center gap-1.5 text-slate-400 hover:text-slate-800 transition-colors font-bold uppercase text-[10px] tracking-widest"
         >
-          <ArrowLeft size={16} /> <span className="hidden xs:inline">{curr.back}</span>
+          <ArrowLeft size={12} /> {curr.back}
         </button>
 
         <button 
+          type="button"
           onClick={() => setLang(lang === 'EN' ? 'HI' : 'EN')}
-          className="flex items-center gap-2 px-3 sm:px-4 py-1.5 sm:py-2 bg-white/5 border border-white/10 rounded-full hover:border-primary transition-all text-[10px] sm:text-xs font-bold text-main"
+          className="flex items-center gap-1.5 px-2 py-1 border border-border-theme hover:bg-slate-50 text-[10px] font-bold text-slate-500 hover:text-slate-800 transition-all uppercase tracking-wider"
         >
-          <Languages size={14} /> {lang === 'EN' ? 'हिंदी' : 'EN'}
+          <Languages size={12} /> {lang === 'EN' ? 'HINDI' : 'ENGLISH'}
         </button>
       </div>
 
-      <motion.div 
-        initial={{ scale: 0.95, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        className="w-full max-w-md bg-white/5 backdrop-blur-xl border border-white/10 p-6 sm:p-10 shadow-2xl relative z-10 mt-12 sm:mt-0"
-      >
-        <div className="text-center mb-10">
-          <h2 className="text-3xl font-display italic text-main mb-2">
+      <div className="w-full max-w-sm border border-border-theme bg-[var(--card-bg)] p-6 md:p-8 shadow-none transition-colors duration-200">
+        
+        <div className="text-center mb-8 border-b border-border-theme pb-4">
+          <h2 className="text-lg font-bold uppercase tracking-wider text-main">
             {mode === 'LOGIN' ? curr.loginTitle : curr.signupTitle}
           </h2>
-          <div className="h-1 w-12 bg-primary mx-auto"></div>
+          <p className="text-[9px] text-slate-400 font-bold uppercase mt-1">RPSC AI Compliance Enforcer</p>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-6">
+        <form onSubmit={handleSubmit} className="space-y-4">
           <AnimatePresence mode="wait">
             {mode === 'SIGNUP' && (
               <motion.div
@@ -116,14 +110,14 @@ export default function AuthScreen({ onSuccess, onBack }: AuthScreenProps) {
                 exit={{ height: 0, opacity: 0 }}
                 className="overflow-hidden"
               >
-                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">{curr.nameLabel}</label>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">{curr.nameLabel}</label>
                 <div className="relative">
-                  <UserIcon className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
+                  <UserIcon className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
                   <input 
                     required
                     type="text"
-                    placeholder="Enter your name"
-                    className="w-full bg-white/5 border border-white/10 p-4 pl-12 text-sm outline-none focus:border-primary transition-colors text-main"
+                    placeholder="Enter full name"
+                    className="w-full bg-[var(--card-bg)] border border-border-theme p-3 pl-10 text-xs text-main outline-none focus:border-slate-800 transition-colors"
                     value={formData.name}
                     onChange={e => setFormData({ ...formData, name: e.target.value })}
                   />
@@ -133,14 +127,14 @@ export default function AuthScreen({ onSuccess, onBack }: AuthScreenProps) {
           </AnimatePresence>
 
           <div>
-            <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">{curr.emailLabel}</label>
+            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">{curr.emailLabel}</label>
             <div className="relative">
-              <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
+              <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
               <input 
                 required
                 type="email"
-                placeholder="email@example.com"
-                className="w-full bg-white/5 border border-white/10 p-4 pl-12 text-sm outline-none focus:border-primary transition-colors text-main"
+                placeholder="name@portal.com"
+                className="w-full bg-[var(--card-bg)] border border-border-theme p-3 pl-10 text-xs text-main outline-none focus:border-slate-800 transition-colors"
                 value={formData.email}
                 onChange={e => setFormData({ ...formData, email: e.target.value })}
               />
@@ -148,43 +142,45 @@ export default function AuthScreen({ onSuccess, onBack }: AuthScreenProps) {
           </div>
 
           <div>
-            <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">{curr.passLabel}</label>
+            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">{curr.passLabel}</label>
             <div className="relative">
-              <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
+              <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
               <input 
                 required
                 type={showPassword ? "text" : "password"}
                 placeholder="••••••••"
-                className="w-full bg-white/5 border border-white/10 p-4 pl-12 pr-12 text-sm outline-none focus:border-primary transition-colors text-main"
+                className="w-full bg-[var(--card-bg)] border border-border-theme p-3 pl-10 pr-10 text-xs text-main outline-none focus:border-slate-800 transition-colors"
                 value={formData.password}
                 onChange={e => setFormData({ ...formData, password: e.target.value })}
               />
               <button 
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 hover:text-primary transition-colors"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-800 transition-colors"
               >
-                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
               </button>
             </div>
-            <p className="text-[10px] text-slate-500 mt-2 italic font-light">{curr.passHint}</p>
+            <p className="text-[9px] text-slate-400 mt-1.5 italic font-medium">{curr.passHint}</p>
           </div>
 
           <button
+            type="submit"
             disabled={loading}
-            className="w-full bg-slate-900 border border-white/10 text-white font-bold tracking-[0.2em] uppercase py-4 hover:bg-primary transition-all flex items-center justify-center gap-2 shadow-xl"
+            className="w-full h-10 bg-slate-900 border border-slate-900 text-white font-bold tracking-[0.2em] uppercase text-xs hover:bg-slate-800 disabled:opacity-55 transition-all flex items-center justify-center gap-2"
           >
-            {loading ? <Loader2 className="animate-spin" size={20} /> : (mode === 'LOGIN' ? curr.loginBtn : curr.signupBtn)}
+            {loading ? <Loader2 className="animate-spin" size={16} /> : (mode === 'LOGIN' ? curr.loginBtn : curr.signupBtn)}
           </button>
         </form>
 
         <button 
+          type="button"
           onClick={() => setMode(mode === 'LOGIN' ? 'SIGNUP' : 'LOGIN')}
-          className="w-full mt-8 text-center text-[10px] font-bold text-slate-500 hover:text-primary transition-colors uppercase tracking-[0.2em]"
+          className="w-full mt-6 text-center text-[9px] font-bold text-slate-400 hover:text-slate-800 transition-colors uppercase tracking-[0.15em] border-t border-border-theme pt-4"
         >
           {mode === 'LOGIN' ? curr.switchSignup : curr.switchLogin}
         </button>
-      </motion.div>
+      </div>
     </div>
   );
 }

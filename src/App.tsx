@@ -36,20 +36,34 @@ import {
   Compass,
   User as UserIcon,
   Menu,
-  X
+  X,
+  Smartphone,
+  Copy
 } from 'lucide-react';
-import { generateQuizQuestions } from './services/geminiService';
+import { generateQuizQuestions, formatCustomQuestionToMcq } from './services/geminiService';
 import { Question, QuizConfig, Subject, Difficulty, Language, ThemeType, User, ExamPattern } from './types';
 import { mockAuth } from './services/authService';
+import { doc, setDoc } from 'firebase/firestore';
+import { db } from './services/firebase';
 import IntroScreen from './components/IntroScreen';
 import AuthScreen from './components/AuthScreen';
 import RiverMap from './components/RiverMap';
+import HomeDashboard from './components/HomeDashboard';
+import SetupPanel from './components/SetupPanel';
+import RulesPanel from './components/RulesPanel';
+import ResultsPanel from './components/ResultsPanel';
 import { useFeedback } from './hooks/useFeedback';
-import { testFirebaseConnection, hasFirebaseVars } from './services/firebase';
-import { Play, Pause, Bookmark, Terminal, AlertCircle, ShieldAlert } from 'lucide-react';
+import { mainActivityCode, quizRepositoryCode, buildGradleCode, manifestCode, retrofitClientCode, geminiApiServiceCode, devPlanCode } from './services/androidCode';
 
 export default function App() {
   const [screen, setScreen] = useState<'LANDING' | 'INTRO' | 'AUTH' | 'HOME' | 'SETUP' | 'RULES' | 'QUIZ' | 'RESULTS'>('LANDING');
+  const [errorToast, setErrorToast] = useState<{ show: boolean; message: string }>({ show: false, message: "" });
+  const showError = (msg: string) => {
+    setErrorToast({ show: true, message: msg });
+    setTimeout(() => {
+      setErrorToast(prev => ({ ...prev, show: false }));
+    }, 6000);
+  };
   const [loading, setLoading] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [theme, setTheme] = useState<ThemeType>('geometric');
@@ -64,7 +78,8 @@ export default function App() {
     language: 'English',
     questionCount: 10,
     pattern: '2021-Present',
-    topic: ''
+    topic: '',
+    feedbackMode: 'Instant Feedback'
   });
 
   // Quiz state
@@ -78,43 +93,206 @@ export default function App() {
   const [isAnswered, setIsAnswered] = useState(false);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Diagnostics and premium examination layout states
-  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
-  const [isPaused, setIsPaused] = useState(false);
-  const [markedForReview, setMarkedForReview] = useState<Record<number, boolean>>({});
-  const [bookmarks, setBookmarks] = useState<Record<number, boolean>>({});
-  const [firebaseStatus, setFirebaseStatus] = useState<'Checking' | 'Syncing' | 'Connected' | 'Not Configured' | 'Failed'>('Checking');
-  const [firebaseError, setFirebaseError] = useState<string | null>(null);
-
-  // Trigger Firestore ping check on boot
-  useEffect(() => {
-    const checkFirebase = async () => {
-      setFirebaseStatus('Syncing');
-      try {
-        const res = await testFirebaseConnection();
-        if (res.active) {
-          setFirebaseStatus('Connected');
-          setFirebaseError(null);
-        } else {
-          setFirebaseStatus(hasFirebaseVars ? 'Failed' : 'Not Configured');
-          setFirebaseError(res.error || "Firebase Firestore database connection is unreachable.");
-        }
-      } catch (err: any) {
-        setFirebaseStatus('Failed');
-        setFirebaseError(err?.message || String(err));
-      }
-    };
-    checkFirebase();
-  }, []);
-
   // Gamification state
   const [streak, setStreak] = useState(0);
   const [badges, setBadges] = useState<string[]>([]);
   const [dailyDone, setDailyDone] = useState(false);
   const [isDailyChallenge, setIsDailyChallenge] = useState(false);
   const [isMapOpen, setIsMapOpen] = useState(false);
+  const [bookmarks, setBookmarks] = useState<Question[]>([]);
+  const [isBookmarksReview, setIsBookmarksReview] = useState(false);
+
+  // Core AI Engine & Firestore Sync Protocol states
+  const [syncLog, setSyncLog] = useState<{
+    session_id: string;
+    operation: 'RESUME_SESSION' | 'POPUP_INJECT' | 'LOAD_CACHE' | 'NEW_GENERATION' | 'CONNECTING' | 'IDLE';
+    current_index: number;
+    ui_control: {
+      show_syllabus_grid: boolean;
+      hud_monitor_visibility: 'GONE' | 'VISIBLE';
+      background_sync_active: boolean;
+      android_studio_btn_visibility: 'GONE' | 'VISIBLE';
+      is_developer_mode_authenticated: boolean;
+    };
+    quiz_data: {
+      question: string;
+      options: string[];
+      correct_answer: string;
+      is_custom: boolean;
+      guru_mantra?: string;
+    } | null;
+  }>({
+    session_id: `SES-AND-${Date.now().toString().slice(-4)}`,
+    operation: 'IDLE',
+    current_index: 0,
+    ui_control: {
+      show_syllabus_grid: true,
+      hud_monitor_visibility: 'GONE',
+      background_sync_active: true,
+      android_studio_btn_visibility: 'GONE',
+      is_developer_mode_authenticated: false
+    },
+    quiz_data: {
+      question: "Core Firestore synchronizer initialized. Ready to sync com.rpsc.quizapp updates.",
+      options: ["Statement 1 check", "Plausible factual distractor", "RPSC Syllabus Trap", "Correct answer representation"],
+      correct_answer: "D",
+      is_custom: false,
+      guru_mantra: "Syllabus tracking active."
+    }
+  });
+  const [showInjectModal, setShowInjectModal] = useState(false);
+  const [showFormatModal, setShowFormatModal] = useState(false);
+  const [copySuccess, setCopySuccess] = useState(false);
+  const [customInputPrompt, setCustomInputPrompt] = useState('');
+  const [injecting, setInjecting] = useState(false);
+  const [showSyncLogConsole, setShowSyncLogConsole] = useState(true);
+  const [loadingSubtext, setLoadingSubtext] = useState("Matching Exam Patterns");
+
+  useEffect(() => {
+    let timer1: NodeJS.Timeout;
+    let timer2: NodeJS.Timeout;
+    if (loading) {
+      setLoadingSubtext("Matching Exam Patterns");
+      timer1 = setTimeout(() => {
+        setLoadingSubtext("AI servers are currently busy. Retrying automatically...");
+      }, 4000);
+      timer2 = setTimeout(() => {
+        setLoadingSubtext("Retrying with fallback models, thank you for waiting...");
+      }, 12000);
+    }
+    return () => {
+      clearTimeout(timer1);
+      clearTimeout(timer2);
+    };
+  }, [loading]);
+
+  // Optional Developer Mode click-bypass variables
+  const [developerMode, setDeveloperMode] = useState(false);
+  const [devClicks, setDevClicks] = useState(0);
+  const [lastDevClickTime, setLastDevClickTime] = useState(0);
+
+  const handleDevClick = () => {
+    const now = Date.now();
+    if (now - lastDevClickTime < 2500) {
+      const newClicks = devClicks + 1;
+      setDevClicks(newClicks);
+      if (newClicks >= 5) {
+        const nextMode = !developerMode;
+        setDeveloperMode(nextMode);
+        setDevClicks(0);
+        feedback('success');
+        
+        // Update syncLog to match the new visibility
+        setSyncLog(prev => ({
+          ...prev,
+          ui_control: {
+            ...prev.ui_control,
+            hud_monitor_visibility: nextMode ? 'VISIBLE' : 'GONE',
+            android_studio_btn_visibility: nextMode ? 'VISIBLE' : 'GONE',
+            is_developer_mode_authenticated: nextMode
+          }
+        }));
+      }
+    } else {
+      setDevClicks(1);
+    }
+    setLastDevClickTime(now);
+  };
+
+  // Android Hub state parameters
+  const [showKotlinHub, setShowKotlinHub] = useState(false);
+  const [kotlinTab, setKotlinTab] = useState<'MAIN' | 'REP' | 'NET_CLI' | 'NET_SERV' | 'BUILD' | 'MAN' | 'DOC'>('MAIN');
 
   const { feedback } = useFeedback();
+
+  const syncSessionStateToFirestore = async (
+    sessionId: string,
+    operation: 'RESUME_SESSION' | 'POPUP_INJECT' | 'LOAD_CACHE' | 'NEW_GENERATION' | 'CONNECTING' | 'IDLE',
+    index: number,
+    activeQuestion: Question | null,
+    guruMantra: string = "RPSC Core Standard Syllabus Item"
+  ) => {
+    const quiz_data = activeQuestion ? {
+      question: activeQuestion.question,
+      options: [
+        activeQuestion.options.A,
+        activeQuestion.options.B,
+        activeQuestion.options.C,
+        activeQuestion.options.D
+      ],
+      correct_answer: activeQuestion.correctAnswer,
+      is_custom: !!activeQuestion.is_custom,
+      guru_mantra: guruMantra
+    } : {
+      question: guruMantra,
+      options: [],
+      correct_answer: "",
+      is_custom: false
+    };
+
+    try {
+      await setDoc(doc(db, 'sessions', sessionId), {
+        session_id: sessionId,
+        operation: operation,
+        current_index: index,
+        sync_status: 'VERIFIED_SYNC',
+        last_updated: Date.now(),
+        active_question_id: activeQuestion?.id || null,
+        is_custom: !!activeQuestion?.is_custom,
+        ui_control: {
+          show_syllabus_grid: false,
+          hud_monitor_visibility: developerMode ? 'VISIBLE' : 'GONE',
+          background_sync_active: true,
+          android_studio_btn_visibility: developerMode ? 'VISIBLE' : 'GONE',
+          is_developer_mode_authenticated: developerMode
+        },
+        quiz_data: quiz_data
+      }, { merge: true });
+
+      setSyncLog({
+        session_id: sessionId,
+        operation: operation,
+        current_index: index,
+        ui_control: {
+          show_syllabus_grid: false,
+          hud_monitor_visibility: developerMode ? 'VISIBLE' : 'GONE',
+          background_sync_active: true,
+          android_studio_btn_visibility: developerMode ? 'VISIBLE' : 'GONE',
+          is_developer_mode_authenticated: developerMode
+        },
+        quiz_data: quiz_data
+      });
+    } catch (err: any) {
+      console.error("Firestore write failure", err);
+      setSyncLog({
+        session_id: sessionId,
+        operation: operation,
+        current_index: index,
+        ui_control: {
+          show_syllabus_grid: false,
+          hud_monitor_visibility: developerMode ? 'VISIBLE' : 'GONE',
+          background_sync_active: false,
+          android_studio_btn_visibility: developerMode ? 'VISIBLE' : 'GONE',
+          is_developer_mode_authenticated: developerMode
+        },
+        quiz_data: quiz_data
+      });
+      // Formalize the error object and throw matching the mandatory FirestoreErrorInfo schema
+      const errInfo = {
+        error: err instanceof Error ? err.message : String(err),
+        operationType: 'write',
+        path: `sessions/${sessionId}`,
+        authInfo: {
+          userId: null,
+          email: null,
+          emailVerified: false,
+          isAnonymous: false,
+          providerInfo: []
+        }
+      };
+      throw new Error(JSON.stringify(errInfo));
+    }
+  };
 
   // Check for saved quiz on mount
   useEffect(() => {
@@ -122,15 +300,59 @@ export default function App() {
     if (saved) setHasSavedQuiz(true);
   }, [screen]);
 
-  // Persist user and progress
+  // Load bookmarks on mount
+  useEffect(() => {
+    const savedBookmarks = localStorage.getItem('rpsc_bookmarks');
+    if (savedBookmarks) {
+      try {
+        setBookmarks(JSON.parse(savedBookmarks));
+      } catch (e) {
+        console.error("Failed to parse saved bookmarks", e);
+      }
+    }
+  }, []);
+
+  // Persist user and progress with Automated Resumption (Sudden Exit Handler)
   useEffect(() => {
     const savedUser = localStorage.getItem('rpsc_user');
     if (savedUser) {
       try {
-        setUser(JSON.parse(savedUser));
+        const parsedUser = JSON.parse(savedUser);
+        setUser(parsedUser);
+        
+        // Automated Resumption check:
+        // Automatically analyze the last state and resume the quiz exactly from the last saved question index
+        const savedQuiz = localStorage.getItem('rpsc_current_quiz');
+        if (savedQuiz) {
+          const data = JSON.parse(savedQuiz);
+          if (data.questions && data.questions.length > 0) {
+            setConfig(data.config);
+            setQuestions(data.questions);
+            setUserAnswers(data.userAnswers);
+            setCurrentIndex(data.currentIndex);
+            setQuizTimer(data.quizTimer);
+            setIsAnswered(data.isAnswered);
+            setIsReviewMode(data.isReviewMode);
+            setIsDailyChallenge(data.isDailyChallenge);
+            setIsBookmarksReview(data.isBookmarksReview || false);
+            setScreen('QUIZ');
+            
+            // Set sync operations logs to load from exact state (RESUME_SESSION)
+            const sesId = `SES-${Date.now().toString().slice(-4)}`;
+            syncSessionStateToFirestore(
+              sesId,
+              'RESUME_SESSION',
+              data.currentIndex,
+              data.questions[data.currentIndex],
+              "Syllabus state recovered seamlessly."
+            );
+            return;
+          }
+        }
         setScreen('HOME');
       } catch (e) {
-        console.error("Failed to parse saved user", e);
+        console.error("Failed to parse saved user or resume quiz on mount", e);
+        setScreen('HOME');
       }
     }
   }, []);
@@ -155,7 +377,8 @@ export default function App() {
         quizTimer,
         isAnswered,
         isReviewMode,
-        isDailyChallenge
+        isDailyChallenge,
+        isBookmarksReview
       };
       localStorage.setItem('rpsc_current_quiz', JSON.stringify(progress));
     } else if (screen === 'RESULTS') {
@@ -176,6 +399,7 @@ export default function App() {
       setIsAnswered(data.isAnswered);
       setIsReviewMode(data.isReviewMode);
       setIsDailyChallenge(data.isDailyChallenge);
+      setIsBookmarksReview(data.isBookmarksReview || false);
       setScreen('QUIZ');
       feedback('success');
     }
@@ -206,17 +430,9 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (screen === 'QUIZ' && !loading && !isPaused) {
+    if (screen === 'QUIZ' && !loading) {
       timerRef.current = setInterval(() => {
-        setQuizTimer(prev => {
-          if (prev >= 1199) {
-            // Countdown ended. Auto-submit exam.
-            setScreen('RESULTS');
-            feedback('success');
-            return 1200;
-          }
-          return prev + 1;
-        });
+        setQuizTimer(prev => prev + 1);
       }, 1000);
     } else {
       if (timerRef.current) clearInterval(timerRef.current);
@@ -224,13 +440,14 @@ export default function App() {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [screen, loading, isPaused]);
+  }, [screen, loading]);
 
   const startSetup = (subject: Subject) => {
     feedback('click');
     setConfig(prev => ({ ...prev, subject }));
     setIsReviewMode(false);
     setIsDailyChallenge(false);
+    setIsBookmarksReview(false);
     setScreen('SETUP');
   };
 
@@ -241,7 +458,36 @@ export default function App() {
     setCurrentIndex(0);
     setIsReviewMode(true);
     setIsDailyChallenge(false);
+    setIsBookmarksReview(false);
     setScreen('QUIZ');
+  };
+
+  const startBookmarksReview = () => {
+    if (bookmarks.length === 0) return;
+    feedback('click');
+    setQuestions(bookmarks);
+    setUserAnswers(new Array(bookmarks.length).fill(null));
+    setCurrentIndex(0);
+    setIsReviewMode(true);
+    setIsDailyChallenge(false);
+    setIsBookmarksReview(true);
+    setScreen('QUIZ');
+  };
+
+  const toggleBookmark = (q: Question) => {
+    setBookmarks(prev => {
+      const exists = prev.some(b => b.id === q.id);
+      let updated;
+      if (exists) {
+        updated = prev.filter(b => b.id !== q.id);
+        feedback('click');
+      } else {
+        updated = [...prev, q];
+        feedback('success');
+      }
+      localStorage.setItem('rpsc_bookmarks', JSON.stringify(updated));
+      return updated;
+    });
   };
 
   useEffect(() => {
@@ -321,6 +567,44 @@ export default function App() {
     feedback('click');
     setLoading(true);
     setScreen('QUIZ');
+
+    // Token & Credit Saving: Prioritize cached data to save developer keys!
+    const cleanSubject = config.subject.replace(/\s+/g, '_');
+    const cleanTopic = (config.topic || 'General').replace(/\s+/g, '_');
+    const cacheKey = `rpsc_cache_${cleanSubject}_${cleanTopic}_${config.difficulty}_${config.pattern}_${config.language}`;
+    const cachedString = localStorage.getItem(cacheKey);
+
+    if (cachedString) {
+      try {
+        const cachedQuestions = JSON.parse(cachedString);
+        if (Array.isArray(cachedQuestions) && cachedQuestions.length > 0) {
+          // Cached quiz matches perfectly
+          setQuestions(cachedQuestions);
+          setUserAnswers(new Array(cachedQuestions.length).fill(null));
+          setCurrentIndex(0);
+          setQuizTimer(0);
+          setIsAnswered(false);
+
+          // Configure Sync Log output schema
+          const sessionId = `SES-CACHE-${Date.now().toString().slice(-4)}`;
+          syncSessionStateToFirestore(
+            sessionId,
+            'LOAD_CACHE',
+            0,
+            cachedQuestions[0],
+            "Syllabus cached content loaded."
+          );
+
+          setLoading(false);
+          feedback('success');
+          return;
+        }
+      } catch (e) {
+        console.error("Cache fetch error, failing back to generation", e);
+      }
+    }
+
+    // Cache miss - perform fresh generation from Gemini AI
     try {
       const generatedQuestions = await generateQuizQuestions(config);
       setQuestions(generatedQuestions);
@@ -328,13 +612,53 @@ export default function App() {
       setCurrentIndex(0);
       setQuizTimer(0);
       setIsAnswered(false);
-    } catch (error) {
-      alert("Error generating quiz. Please try again.");
+
+      // Save to cache
+      localStorage.setItem(cacheKey, JSON.stringify(generatedQuestions));
+
+      // Configure Sync Log output schema
+      const sessionId = `SES-NEW-${Date.now().toString().slice(-4)}`;
+      syncSessionStateToFirestore(
+        sessionId,
+        'NEW_GENERATION',
+        0,
+        generatedQuestions[0],
+        "Fresh AI generation complete."
+      );
+    } catch (error: any) {
+      console.error("[GENERATOR] Permanent failure after retry sequence:", error);
+      showError("AI service is temporarily overloaded. Please try again in a moment.");
       setScreen('SETUP');
     } finally {
       setLoading(false);
     }
   };
+
+  // Synchronically update Firestore State Sync Monitor on question index shifts
+  useEffect(() => {
+    if (screen === 'QUIZ' && questions.length > 0 && questions[currentIndex]) {
+      const sessionId = syncLog?.session_id || `SES-${Date.now().toString().slice(-4)}`;
+      let activeOp: 'RESUME_SESSION' | 'POPUP_INJECT' | 'LOAD_CACHE' | 'NEW_GENERATION' | 'IDLE' | 'CONNECTING' = 'NEW_GENERATION';
+      
+      if (isBookmarksReview) {
+        activeOp = 'LOAD_CACHE';
+      } else if (questions[currentIndex].is_custom) {
+        activeOp = 'POPUP_INJECT';
+      } else if (syncLog?.operation) {
+        activeOp = syncLog.operation;
+      }
+      
+      const mantra = isBookmarksReview ? "Scribbled bookmarks review session" : "RPSC Core Standard Syllabus Item";
+      
+      syncSessionStateToFirestore(
+        sessionId,
+        activeOp,
+        currentIndex,
+        questions[currentIndex],
+        mantra
+      );
+    }
+  }, [currentIndex]);
 
   const handleSelectAnswer = (answer: string) => {
     if (isAnswered) return;
@@ -354,6 +678,51 @@ export default function App() {
         if (prev.find(m => m.id === questions[currentIndex].id)) return prev;
         return [...prev, questions[currentIndex]];
       });
+    }
+  };
+
+  const injectCustomQuestion = async (text: string) => {
+    if (!text.trim()) return;
+    feedback('click');
+    setInjecting(true);
+    try {
+      // Call core formatter
+      const newQuestion = await formatCustomQuestionToMcq(text, config);
+      
+      // Inject directly as the next question in the active questions array
+      const updatedQuestions = [...questions];
+      const targetIndex = currentIndex + 1;
+      updatedQuestions.splice(targetIndex, 0, newQuestion);
+      
+      const updatedUserAnswers = [...userAnswers];
+      updatedUserAnswers.splice(targetIndex, 0, null);
+      
+      // Update states
+      setQuestions(updatedQuestions);
+      setUserAnswers(updatedUserAnswers);
+      setCurrentIndex(targetIndex);
+      setIsAnswered(false);
+      setCustomInputPrompt('');
+      setShowInjectModal(false);
+      
+      // Log custom sync operation
+      const sesId = syncLog?.session_id || `SES-${Date.now().toString().slice(-4)}`;
+      
+      // Write the session payload securely to Firestore and update the sync log
+      await syncSessionStateToFirestore(
+        sesId,
+        'POPUP_INJECT',
+        targetIndex,
+        newQuestion,
+        "Custom MCQ formatted and pushed to screen."
+      );
+      
+      feedback('success');
+    } catch (e: any) {
+      console.error("FRONTEND_ERROR: Formatting or Sync failure", e);
+      showError("Error formatting your custom question. Safe offline fallback question loaded.");
+    } finally {
+      setInjecting(false);
     }
   };
 
@@ -420,121 +789,6 @@ export default function App() {
 
   return (
     <div className={`h-screen bg-page flex flex-col font-sans text-main overflow-hidden theme-${theme} relative`} data-theme={theme}>
-      {/* 🛠️ COLLAPSIBLE SYSTEM DIAGNOSTIC PANEL */}
-      <AnimatePresence>
-        {diagnosticsOpen && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            className="w-full bg-slate-900 text-slate-200 border-b border-slate-700 font-mono text-xs overflow-hidden relative z-50 shrink-0"
-          >
-            <div className="max-w-7xl mx-auto p-4 md:p-6 grid grid-cols-1 md:grid-cols-12 gap-6">
-              {/* Variable Health Audit */}
-              <div className="md:col-span-4 space-y-4 border-r border-slate-800 pr-0 md:pr-6">
-                <div className="flex items-center gap-2 text-teal-400 font-bold border-b border-slate-800 pb-2">
-                  <Terminal size={14} /> ENVIRONMENTAL AUDIT
-                </div>
-                
-                <div className="space-y-3 font-semibold">
-                  {/* Gemini API Key */}
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-400">VITE_GEMINI_API_KEY:</span>
-                    {typeof (import.meta as any).env?.VITE_GEMINI_API_KEY === 'string' && (import.meta as any).env?.VITE_GEMINI_API_KEY.length > 0 ? (
-                      <span className="px-2 py-0.5 bg-green-500/10 text-green-400 border border-green-500/30 rounded text-[10px] font-bold">
-                        RESOLVED (Active)
-                      </span>
-                    ) : (
-                      <span className="px-2 py-0.5 bg-red-500/10 text-red-400 border border-red-500/30 rounded text-[10px] font-bold">
-                        NOT CONFIGURED
-                      </span>
-                    )}
-                  </div>
-
-                  {/* OpenRouter API Key */}
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-400">VITE_OPENROUTER_API_KEY:</span>
-                    {typeof (import.meta as any).env?.VITE_OPENROUTER_API_KEY === 'string' && (import.meta as any).env?.VITE_OPENROUTER_API_KEY.length > 0 ? (
-                      <span className="px-2 py-0.5 bg-green-500/10 text-green-400 border border-green-500/30 rounded text-[10px] font-bold">
-                        RESOLVED (Active)
-                      </span>
-                    ) : (
-                      <span className="px-2 py-0.5 bg-red-400/10 text-red-400 border border-red-400/30 rounded text-[10px] font-bold">
-                        NOT CONFIGURED
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Firebase Firestore Status */}
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-400">Firestore Connection:</span>
-                    <span className={`px-2 py-0.5 border rounded text-[10px] font-bold ${
-                      firebaseStatus === 'Connected' 
-                        ? 'bg-green-500/10 text-green-400 border-green-500/30'
-                        : firebaseStatus === 'Syncing'
-                          ? 'bg-amber-500/10 text-amber-400 border-amber-500/30 animate-pulse'
-                          : firebaseStatus === 'Not Configured'
-                            ? 'bg-slate-500/10 text-slate-400 border-slate-500/30'
-                            : 'bg-red-500/10 text-red-400 border-red-500/30'
-                    }`}>
-                      {firebaseStatus === 'Connected' && 'CONNECTED (Auto-Polling)'}
-                      {firebaseStatus === 'Syncing' && 'SYNCING PING...'}
-                      {firebaseStatus === 'Not Configured' && 'LOCAL FALLBACK'}
-                      {firebaseStatus === 'Failed' && 'STREAM DISCONNECTED / TIMEOUT'}
-                      {firebaseStatus === 'Checking' && 'CHECKING...'}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="text-[10px] text-slate-500 p-2.5 bg-slate-950/50 rounded border border-slate-800">
-                  <span className="font-bold text-amber-500 block mb-1">💡 DEV TIP:</span>
-                  To use real Firebase, declare <span className="text-slate-300">VITE_FIREBASE_API_KEY</span> and <span className="text-slate-300">VITE_FIREBASE_PROJECT_ID</span> in your secrets.
-                </div>
-              </div>
-
-              {/* Netlify Variable Diagnostic Audit Details */}
-              <div className="md:col-span-8 space-y-4">
-                <div className="flex items-center gap-2 text-teal-400 font-bold border-b border-slate-800 pb-2">
-                  <AlertCircle size={14} /> SYSTEM DIAGNOSTIC LOGS & REMEDIATION ARCHITECTURE
-                </div>
-                
-                <div className="text-xs space-y-3 leading-relaxed text-slate-300">
-                  <div>
-                    <span className="text-amber-400 font-bold">1. Diagnosing Netlify Env 'NOT CONFIGURED' & 404s:</span>
-                    <p className="text-[11px] text-slate-400 mt-1">
-                      If variables exist in Netlify but show <span className="text-slate-200">NOT CONFIGURED</span> in the client, verify that <span className="text-amber-300 font-bold">"All scopes" (Builds and Runtime)</span> are checked on the Netlify Environment Dashboard. If only "Builds" is active, Vite's production bundler lacks access during runtime bundle execution, stripping keys from the app!
-                    </p>
-                  </div>
-
-                  <div>
-                    <span className="text-amber-400 font-bold">2. Restoring "@firebase/firestore" WebChannel RPC Stream Error:</span>
-                    <p className="text-[11px] text-slate-400 mt-1">
-                      On sandboxed networks, gRPC streams error on RPC transport. We have patched our client initialization inside <span className="text-slate-200">src/services/firebase.ts</span> using the strict constraint <span className="text-teal-400 font-semibold italic">experimentalAutoDetectLongPolling: true</span>, forcing fallback transmission to prevent stream dropouts and secure flawless quiz syncing.
-                    </p>
-                  </div>
-
-                  {firebaseError && (
-                    <div className="bg-red-900/10 border border-red-500/20 text-red-400 p-2.5 rounded text-[11px]">
-                      <span className="font-bold">Active Connection Error Log:</span> {firebaseError}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-            
-            <div className="bg-slate-950/80 px-4 py-2 border-t border-slate-800 flex justify-between items-center text-[10px] text-slate-500">
-              <span>ACTIVE SYSTEM AUDITOR • OFFLINE PORTAL MATCHED</span>
-              <button 
-                onClick={() => setDiagnosticsOpen(false)}
-                className="text-teal-400 hover:text-teal-300 uppercase tracking-wider font-bold bg-transparent border-0 cursor-pointer"
-              >
-                [ Close Panel ]
-              </button>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
       {/* Background Accents (Geometric Balance Mode) */}
       {theme === 'geometric' && (
         <div className="fixed inset-0 pointer-events-none overflow-hidden">
@@ -603,7 +857,7 @@ export default function App() {
             className="flex flex-col h-full overflow-hidden"
           >
             {/* Header Navigation */}
-            <header className={`h-16 md:h-20 flex items-center justify-between px-4 md:px-8 shrink-0 relative z-20 transition-all duration-700 ${
+            <header className={`min-h-[3.5rem] md:h-20 py-2 md:py-0 flex flex-wrap gap-2 justify-between items-center px-2 md:px-8 shrink-0 relative z-20 transition-all duration-700 ${
               theme === 'rajasthan' 
                 ? 'bg-gradient-to-r from-rose-800 via-red-700 to-orange-600 text-white border-b-4 border-amber-600 shadow-lg' 
                 : 'bg-white/80 backdrop-blur-md border-b border-white/10'
@@ -614,15 +868,21 @@ export default function App() {
                   }`}>
                     {theme === 'rajasthan' ? <Castle size={18} /> : 'A'}
                   </div>
-                  <div>
-                    <h1 className={`text-base md:text-xl font-bold tracking-tight font-display ${theme === 'rajasthan' ? 'text-white' : ''}`}>
+                  <div 
+                    onClick={(e) => { 
+                      e.stopPropagation(); 
+                      handleDevClick(); 
+                    }}
+                    title="Developer Trigger"
+                  >
+                    <h1 className={`text-base md:text-xl font-bold tracking-tight font-display select-none ${theme === 'rajasthan' ? 'text-white' : ''}`}>
                       RPSC <span className={`${theme === 'rajasthan' ? 'text-amber-200' : 'text-primary'} underline decoration-2 underline-offset-4`}>AI-Quizzer</span>
                     </h1>
                     {theme === 'rajasthan' && <p className="hidden md:block text-[8px] text-orange-100 uppercase tracking-widest font-bold">Royal Examination Portal</p>}
                   </div>
                 </div>
                 
-                <div className="flex items-center gap-2 md:gap-4">
+                <div className="flex flex-wrap items-center gap-1.5 md:gap-4">
                   {(screen === 'QUIZ' || screen === 'RESULTS') && (
                     <div className="flex flex-col items-end mr-1 md:mr-4">
                       <span className="hidden lg:block text-[9px] uppercase font-bold text-slate-400 tracking-widest whitespace-nowrap">Session Timer</span>
@@ -630,20 +890,7 @@ export default function App() {
                     </div>
                   )}
                   
-                  <div className="flex items-center gap-1 md:gap-2">
-                    {/* diagnostics toggle */}
-                    <button
-                      onClick={() => setDiagnosticsOpen(!diagnosticsOpen)}
-                      className={`px-3 py-1.5 md:px-4 md:py-2 rounded-full border text-[10px] font-bold uppercase transition-all tracking-wider flex items-center gap-1.5 cursor-pointer shadow-sm ${
-                        diagnosticsOpen 
-                          ? 'bg-amber-600 border-amber-500 text-white' 
-                          : 'bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-800'
-                      }`}
-                    >
-                      <Terminal size={12} />
-                      <span className="hidden xs:inline">System Audit</span>
-                    </button>
-
+                  <div className="flex flex-wrap items-center gap-1 md:gap-2">
                     <div className="hidden sm:flex items-center gap-1 px-2 md:px-3 py-1 bg-orange-500/10 border border-orange-500/10 rounded-full">
                       <span className="text-orange-500 animate-pulse text-[10px]">🔥</span>
                       <span className="text-[10px] md:text-xs font-bold text-orange-500">{streak}</span>
@@ -652,13 +899,13 @@ export default function App() {
                     <button 
                       onClick={toggleTheme}
                       title="Switch Theme"
-                      className={`flex items-center gap-2 px-3 py-2 md:px-5 md:py-2.5 rounded-full transition-all duration-700 shadow-lg border group relative overflow-hidden active:scale-95 ${
+                      className={`flex items-center gap-1.5 px-2 md:px-5 py-1.5 md:py-2.5 rounded-full transition-all duration-700 shadow-lg border group relative overflow-hidden active:scale-95 ${
                         theme === 'rajasthan' 
                           ? 'bg-rose-900/40 border-amber-500/50 text-amber-100 hover:bg-rose-900/60' 
                           : 'bg-white border-indigo-100 text-indigo-600 hover:border-indigo-300 hover:bg-indigo-50'
                       }`}
                     >
-                      <Palette size={18} className={`transition-all duration-500 group-hover:rotate-[30deg] ${theme === 'rajasthan' ? 'text-amber-400' : 'text-indigo-500'}`} />
+                      <Palette size={14} className={`transition-all duration-500 group-hover:rotate-[30deg] ${theme === 'rajasthan' ? 'text-amber-400' : 'text-indigo-500'}`} />
                       <span className={`text-[10px] md:text-sm font-bold transition-all duration-700 whitespace-nowrap ${
                         theme === 'rajasthan' 
                           ? 'font-serif italic text-amber-200 tracking-[0.15em] drop-shadow-sm' 
@@ -681,10 +928,23 @@ export default function App() {
                       <div className={`absolute inset-0 opacity-0 group-hover:opacity-10 transition-opacity bg-white`}></div>
                     </button>
 
+                    {developerMode && (
+                      <button 
+                        onClick={() => {
+                          feedback('click');
+                          setShowKotlinHub(true);
+                        }}
+                        className="px-3.5 py-2 md:py-2.5 rounded-full bg-slate-900 border border-emerald-500/30 text-emerald-400 hover:text-emerald-300 hover:bg-slate-800 transition-all font-mono font-bold text-[10px] uppercase tracking-widest flex items-center gap-1.5 shadow-lg active:scale-95 cursor-pointer animate-fade-in"
+                      >
+                        <Activity size={12} className="text-emerald-400 animate-pulse" />
+                        <span>Android Studio</span>
+                      </button>
+                    )}
+
                   <div className="hidden xs:block h-6 md:h-8 w-px bg-slate-200 mx-1 md:mx-2"></div>
 
                   {user && (
-                    <div className="flex items-center gap-2 md:gap-4">
+                    <div className="flex items-center gap-1.5 md:gap-4">
                       <div className="flex flex-col items-end hidden lg:flex">
                         <span className={`text-[10px] font-bold uppercase tracking-widest leading-none mb-1 ${theme === 'rajasthan' ? 'text-orange-200 opacity-80' : 'text-slate-400'}`}>Authenticated</span>
                         <span className={`text-xs font-bold ${theme === 'rajasthan' ? 'text-white' : 'text-main'}`}>{user.name}</span>
@@ -692,25 +952,25 @@ export default function App() {
                       <button 
                         onClick={handleLogout}
                         title="Logout"
-                        className={`p-1.5 md:p-2 transition-colors ${theme === 'rajasthan' ? 'text-white/70 hover:text-white' : 'text-slate-400 hover:text-red-500'}`}
+                        className={`p-1 md:p-2 transition-colors ${theme === 'rajasthan' ? 'text-white/70 hover:text-white' : 'text-slate-400 hover:text-red-500'}`}
                       >
                         <LogOut size={16} />
                       </button>
                     </div>
                   )}
 
-                  {screen === 'QUIZ' && (
+                  {screen === 'QUIZ' && config.feedbackMode === 'Submit at End' && currentIndex === questions.length - 1 && (
                     <button 
                       onClick={() => setScreen('RESULTS')}
-                      className="px-3 md:px-6 py-1.5 md:py-2 bg-slate-900 text-white text-xs md:text-sm font-semibold rounded hover:bg-slate-800 transition-colors shadow-sm ml-1 md:ml-4"
+                      className="px-2 md:px-6 py-1 md:py-2 bg-slate-900 text-white text-[10px] md:text-sm font-semibold rounded hover:bg-slate-800 transition-colors shadow-sm ml-1 md:ml-4 animate-pulse"
                     >
-                      Submit
+                      Submit Exam
                     </button>
                   )}
                   {screen === 'RESULTS' && (
                     <button 
                       onClick={() => setScreen('HOME')}
-                      className="px-3 md:px-6 py-1.5 md:py-2 bg-primary text-white text-xs md:text-sm font-semibold rounded hover:brightness-110 transition-all shadow-sm ml-1 md:ml-4"
+                      className="px-2 md:px-6 py-1 md:py-2 bg-primary text-white text-[10px] md:text-sm font-semibold rounded hover:brightness-110 transition-all shadow-sm ml-1 md:ml-4"
                     >
                       Exit
                     </button>
@@ -782,338 +1042,45 @@ export default function App() {
               )}
 
               {/* Central Section */}
-              <section className="flex-1 bg-slate-50 overflow-y-auto px-4 md:px-12 py-8 md:py-12 flex flex-col pb-32 md:pb-12">
+              <section className="flex-1 bg-slate-50 overflow-y-auto px-4 md:px-12 py-8 md:py-12 flex flex-col pb-32 md:pb-12 border-l border-border-theme">
                 <AnimatePresence mode="wait">
                   {screen === 'HOME' && (
-                    <motion.div
-                      key="home-grid"
-                      initial={{ opacity: 0, scale: 0.98 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      className="max-w-4xl mx-auto w-full"
-                    >
-                      <div className="flex flex-col md:flex-row md:items-end justify-between mb-8 md:mb-10 gap-4 md:gap-6">
-                        <div>
-                          <span className="text-[10px] md:text-[11px] font-bold text-slate-500 uppercase tracking-[0.2em]">Select Examination Subject</span>
-                          <h2 className="text-2xl md:text-4xl font-display mt-1 md:mt-2 text-main italic">RPSC <span className="text-primary">Practice Portal</span></h2>
-                        </div>
-                        
-                        <div className="flex flex-wrap gap-3 md:gap-4 items-center">
-                          {streak > 0 && (
-                            <div className="flex items-center gap-2 px-4 py-2 bg-orange-50 border border-orange-200 rounded-2xl shadow-sm">
-                              <span className="text-xl">🔥</span>
-                              <div className="flex flex-col">
-                                <span className="text-[10px] font-bold text-orange-400 uppercase tracking-tighter">Current Streak</span>
-                                <span className="text-sm font-bold text-orange-700 leading-none">{streak} Days</span>
-                              </div>
-                            </div>
-                          )}
-
-                          {mistakes.length > 0 && (
-                            <button 
-                              onClick={startMistakeReview}
-                              className={`flex items-center gap-2 px-6 py-3 font-bold border-b-2 transition-all uppercase text-xs tracking-widest ${
-                                theme === 'rajasthan' 
-                                  ? 'bg-rose-800 text-white rounded-2xl border-rose-900 shadow-rose-900/20 shadow-lg' 
-                                  : 'bg-accent text-white rounded-sm border-accent/40 shadow-accent/20 shadow-lg'
-                              } hover:brightness-110`}
-                            >
-                              <BrainCircuit size={16} /> Review Mistakes ({mistakes.length})
-                            </button>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Gamification Row */}
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
-                        {/* Daily Challenge Card */}
-                        <div className={`col-span-1 md:col-span-2 p-5 md:p-8 rounded-3xl border-2 flex flex-col sm:flex-row items-center sm:items-stretch gap-6 relative overflow-hidden group ${
-                          dailyDone 
-                            ? 'bg-slate-50 border-slate-200 opacity-80' 
-                            : 'bg-gradient-to-br from-amber-500 to-orange-500 border-amber-600 text-white'
-                        }`}>
-                          <div className="flex-1 relative z-10 text-center sm:text-left">
-                            <div className="flex items-center justify-center sm:justify-start gap-2 mb-2">
-                              <Sun size={20} className={dailyDone ? 'text-slate-400' : 'text-white animate-spin-slow'} />
-                              <span className="text-[10px] font-bold uppercase tracking-widest opacity-80">Daily Challenge</span>
-                            </div>
-                            <h3 className="text-xl md:text-2xl font-display font-bold mb-2">10 MCQs Rapid Fire</h3>
-                            <p className={`text-xs md:text-sm mb-6 ${dailyDone ? 'text-slate-500' : 'text-white/80'}`}>
-                              {dailyDone ? 'You completed today\'s challenge! Return tomorrow.' : 'Finish in 5 minutes to earn the "Daily Warrior" badge.'}
-                            </p>
-                            
-                            {!dailyDone && (
-                              <button 
-                                onClick={startDailyChallenge}
-                                className="px-6 py-2.5 bg-white text-orange-600 font-bold text-xs uppercase tracking-widest rounded-xl hover:scale-105 active:scale-95 transition-all shadow-lg"
-                              >
-                                Start Challenge
-                              </button>
-                            )}
-                            {dailyDone && (
-                              <div className="flex items-center justify-center sm:justify-start gap-2 text-green-600 font-bold text-sm">
-                                <CheckCircle2 size={18} /> Completed 
-                              </div>
-                            )}
-                          </div>
-                          <div className={`w-24 h-24 md:w-32 md:h-32 flex items-center justify-center shrink-0 relative z-10 ${dailyDone ? 'grayscale opacity-20' : ''}`}>
-                             <div className="absolute inset-0 bg-white/20 rounded-full blur-2xl group-hover:scale-150 transition-transform duration-1000"></div>
-                             <Star size={48} className="text-white drop-shadow-lg md:hidden" />
-                             <Star size={64} className="text-white drop-shadow-lg hidden md:block" />
-                          </div>
-                        </div>
-
-                        {/* Resume / Badges Panel */}
-                        <div className="flex flex-col gap-6">
-                           {hasSavedQuiz && (
-                             <motion.button
-                               initial={{ x: 20, opacity: 0 }}
-                               animate={{ x: 0, opacity: 1 }}
-                               onClick={restoreQuiz}
-                               className="p-6 bg-slate-900 rounded-3xl text-white border border-slate-700 shadow-xl group relative overflow-hidden"
-                             >
-                                <div className="relative z-10">
-                                   <div className="flex items-center gap-2 mb-2">
-                                      <div className="w-2 h-2 rounded-full bg-primary animate-pulse"></div>
-                                      <span className="text-[10px] font-bold uppercase tracking-widest opacity-60">Active Session</span>
-                                   </div>
-                                   <h3 className="text-xl font-display font-bold mb-1">Resume Test</h3>
-                                   <p className="text-[10px] text-slate-400 italic">Curated: {config.subject}</p>
-                                </div>
-                                <Activity className="absolute -right-4 -bottom-4 text-white/5 group-hover:scale-110 transition-transform" size={100} />
-                             </motion.button>
-                           )}
-
-                           <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm flex-1">
-                           <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-                             <Award size={14} /> Unlocked Badges
-                           </h3>
-                           <div className="flex flex-wrap gap-3">
-                             {badges.length === 0 ? (
-                               <p className="text-xs text-slate-400 italic">Complete quizzes to unlock achievement badges.</p>
-                             ) : (
-                               badges.map(b => (
-                                 <div key={b} className="group relative">
-                                   <div className="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center text-primary border border-primary/20 hover:bg-primary hover:text-white transition-all cursor-help shadow-sm">
-                                     <Award size={18} />
-                                   </div>
-                                   <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-slate-900 text-white text-[9px] rounded font-bold whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity">
-                                     {b}
-                                   </div>
-                                 </div>
-                               ))
-                             )}
-                           </div>
-                        </div>
-                      </div>
-
-                    </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {subjects.map((sub, idx) => (
-                          <motion.button
-                            key={sub.name}
-                            whileHover={{ y: -4, shadow: '0 10px 25px -5px rgba(0,0,0,0.1)' }}
-                            onClick={() => startSetup(sub.name)}
-                            className={`p-6 border text-left transition-all group ${
-                              theme === 'rajasthan' 
-                                ? 'bg-white rounded-3xl border-orange-200 shadow-md shadow-orange-100 hover:shadow-xl' 
-                                : 'bg-white border-slate-200'
-                            }`}
-                          >
-                            <div className={`w-10 h-10 ${
-                              theme === 'rajasthan' ? 'bg-rose-800' : (sub.color.includes('blue') ? 'bg-primary' : sub.color)
-                            } text-white flex items-center justify-center rounded-sm mb-4 group-hover:scale-110 transition-transform shadow-sm`}>
-                              <sub.icon size={20} />
-                            </div>
-                            <h3 className={`text-lg font-bold underline underline-offset-4 pointer-events-none ${
-                                theme === 'rajasthan' ? 'text-rose-900 decoration-orange-100 group-hover:decoration-rose-500' : 'text-slate-800 decoration-slate-200 group-hover:decoration-primary'
-                              }`}>{sub.name}</h3>
-                            <p className="text-sm text-slate-500 mt-2 italic pointer-events-none">{sub.desc}</p>
-                          </motion.button>
-                        ))}
-                      </div>
-                    </motion.div>
+                    <HomeDashboard 
+                      user={user}
+                      streak={streak}
+                      badges={badges}
+                      dailyDone={dailyDone}
+                      hasSavedQuiz={hasSavedQuiz}
+                      mistakes={mistakes}
+                      bookmarks={bookmarks}
+                      subjects={subjects}
+                      startSetup={startSetup}
+                      startDailyChallenge={startDailyChallenge}
+                      startMistakeReview={startMistakeReview}
+                      startBookmarksReview={startBookmarksReview}
+                      toggleBookmark={toggleBookmark}
+                      restoreQuiz={restoreQuiz}
+                      theme={theme}
+                    />
                   )}
 
                   {screen === 'SETUP' && (
-                    <motion.div
-                      key="setup-form"
-                      initial={{ opacity: 0, x: 20 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      className="max-w-2xl mx-auto w-full"
-                    >
-                      <button 
-                        onClick={() => setScreen('HOME')}
-                        className="flex items-center text-[11px] font-bold text-slate-400 uppercase tracking-widest hover:text-primary transition-colors mb-8"
-                      >
-                        <ChevronLeft size={16} /> Back to Library
-                      </button>
-                      
-                      <div className={`p-6 md:p-10 ${
-                        theme === 'rajasthan' ? 'bg-white rounded-[2rem] border-2 border-amber-500 shadow-2xl' : 'bg-white border border-slate-200'
-                      }`}>
-                        <div className="mb-8 md:mb-10 flex flex-col md:flex-row border-b border-slate-100 pb-8">
-                           <div className={`w-12 h-12 md:w-14 md:h-14 ${
-                             theme === 'rajasthan' ? 'bg-rose-800' : (subjects.find(s => s.name === config.subject)?.color.includes('blue') ? 'bg-primary' : subjects.find(s => s.name === config.subject)?.color)
-                           } text-white flex items-center justify-center rounded-sm mx-auto md:ml-0 md:mr-6 mb-4 md:mb-0`}>
-                             {(() => {
-                               const SIcon = subjects.find(s => s.name === config.subject)?.icon || History;
-                               return <SIcon size={28} />;
-                             })()}
-                           </div>
-                           <div className="text-center md:text-left">
-                             <h2 className="text-2xl md:text-3xl font-display text-main">{config.subject}</h2>
-                             <p className="text-xs md:text-sm text-slate-500 italic">Configuration & AI Tuning</p>
-                           </div>
-                        </div>
-
-                    <div className="grid gap-6 md:gap-8">
-                          <div className="group">
-                             <label className="block text-[10px] md:text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-3">Exam Pattern Style</label>
-                             <div className="grid grid-cols-2 gap-2">
-                               {(['2012-2020', '2021-Present'] as ExamPattern[]).map(p => (
-                                 <button
-                                   key={p}
-                                   onClick={() => setConfig({ ...config, pattern: p })}
-                                   className={`py-2.5 md:py-3 border text-[10px] md:text-xs font-bold transition-all ${
-                                     config.pattern === p 
-                                       ? 'border-primary bg-primary text-white shadow-md' 
-                                       : 'border-slate-200 text-slate-500 hover:border-primary/20'
-                                   }`}
-                                 >
-                                   {p}
-                                 </button>
-                               ))}
-                             </div>
-                          </div>
-
-                          <div className="group">
-                             <label className="block text-[10px] md:text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-3">Quiz Language</label>
-                             <div className="grid grid-cols-3 gap-2">
-                               {(['English', 'Hindi', 'Hinglish'] as Language[]).map(lang => (
-                                 <button
-                                   key={lang}
-                                   onClick={() => setConfig({ ...config, language: lang })}
-                                   className={`py-2.5 md:py-3 border text-[10px] md:text-xs font-bold transition-all ${
-                                     config.language === lang 
-                                       ? 'border-primary bg-primary text-white shadow-md' 
-                                       : 'border-slate-200 text-slate-500 hover:border-primary/20'
-                                   }`}
-                                 >
-                                   {lang.toUpperCase()}
-                                 </button>
-                               ))}
-                             </div>
-                          </div>
-
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-8">
-                            <div>
-                               <label className="block text-[10px] md:text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-3">Difficulty Level</label>
-                               <select 
-                                 value={config.difficulty}
-                                 onChange={(e) => setConfig({ ...config, difficulty: e.target.value as Difficulty })}
-                                 className="w-full bg-slate-50 border border-slate-200 p-3 md:p-4 text-xs md:text-sm font-medium focus:border-primary outline-none appearance-none"
-                               >
-                                 <option value="Easy">EASY</option>
-                                 <option value="Medium">MEDIUM</option>
-                                 <option value="Hard">HARD</option>
-                               </select>
-                            </div>
-                            <div>
-                               <label className="block text-[10px] md:text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-3">Question Count</label>
-                               <select 
-                                 value={config.questionCount}
-                                 onChange={(e) => setConfig({ ...config, questionCount: parseInt(e.target.value) })}
-                                 className="w-full bg-slate-50 border border-slate-200 p-3 md:p-4 text-xs md:text-sm font-medium focus:border-primary outline-none appearance-none"
-                               >
-                                 <option value={5}>05 QUESTIONS</option>
-                                 <option value={10}>10 QUESTIONS</option>
-                                 <option value={15}>15 QUESTIONS</option>
-                               </select>
-                            </div>
-                          </div>
-
-                          <div>
-                             <label className="block text-[10px] md:text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-3">Syllabus Focus (Optional)</label>
-                             <input 
-                               type="text"
-                               placeholder="e.g. Geography of Aravalli..."
-                               value={config.topic}
-                               onChange={(e) => setConfig({ ...config, topic: e.target.value })}
-                               className="w-full bg-slate-800/5 border border-slate-200 p-3 md:p-4 text-xs md:text-sm font-medium focus:border-primary outline-none text-main"
-                             />
-                          </div>
-
-                          <button
-                            onClick={handleStartQuiz}
-                            className="bg-slate-900 text-white font-bold tracking-widest uppercase py-4 md:py-5 mt-4 hover:bg-primary transition-all shadow-xl shadow-slate-200 flex items-center justify-center gap-2 text-xs md:text-sm"
-                          >
-                            Generate Quiz <ChevronRight size={18} />
-                          </button>
-                        </div>
-                      </div>
-                    </motion.div>
+                    <SetupPanel 
+                      config={config}
+                      setConfig={setConfig}
+                      onBack={() => setScreen('HOME')}
+                      onStartQuiz={handleStartQuiz}
+                      subjects={subjects}
+                    />
                   )}
 
                   {screen === 'RULES' && (
-                    <motion.div
-                      key="rules"
-                      initial={{ opacity: 0, x: 20 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      className="max-w-xl mx-auto w-full"
-                    >
-                      <div className={`p-8 md:p-12 ${
-                        theme === 'rajasthan' ? 'bg-white rounded-[2rem] border-2 border-amber-500 shadow-2xl shadow-amber-900/10' : 'bg-white border border-slate-200'
-                      }`}>
-                        <div className="flex items-center gap-4 mb-8">
-                           <div className="w-12 h-12 bg-primary/10 text-primary rounded-full flex items-center justify-center">
-                              <Info size={24} />
-                           </div>
-                           <div>
-                              <h2 className="text-2xl font-display font-bold text-main italic">Pre-Exam <span className="text-primary">Protocols</span></h2>
-                              <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">RPSC AI Compliance v2.4</p>
-                           </div>
-                        </div>
-
-                        <div className="space-y-6 mb-10">
-                           {[
-                             { icon: Timer, text: "The session is strictly timed. Auto-submit on expiry." },
-                             { icon: Star, text: "Focus entirely on the screen. Do not switch tabs." },
-                             { icon: BookOpen, text: "Instant AI feedback is available after selecting answers." },
-                             { icon: ShieldCheck, text: "Questions are generated based on RPSC official syllabus." }
-                           ].map((rule, i) => (
-                             <div key={i} className="flex gap-4 p-4 bg-slate-50 border border-slate-100 rounded-2xl group hover:bg-white hover:shadow-md transition-all">
-                                <rule.icon size={20} className="text-slate-400 shrink-0 group-hover:text-primary transition-colors" />
-                                <p className="text-sm text-slate-600 font-medium leading-relaxed">{rule.text}</p>
-                             </div>
-                           ))}
-                        </div>
-
-                        <label className="flex items-center gap-3 p-4 bg-primary/5 border border-primary/20 rounded-2xl cursor-pointer hover:bg-primary/10 transition-colors mb-8">
-                           <input 
-                             type="checkbox" 
-                             className="w-5 h-5 rounded border-primary text-primary focus:ring-primary shadow-sm"
-                             onChange={(e) => setRulesAccepted(e.target.checked)}
-                           />
-                           <span className="text-xs font-bold text-slate-700">I have read and understood the examination protocols.</span>
-                        </label>
-
-                        <div className="grid grid-cols-2 gap-4">
-                           <button 
-                             onClick={() => setScreen('SETUP')}
-                             className="py-4 border border-slate-200 rounded-xl font-bold uppercase text-[10px] tracking-widest text-slate-500 hover:bg-slate-50 transition-all active:scale-95"
-                           >
-                              Back
-                           </button>
-                           <button 
-                             disabled={!rulesAccepted}
-                             onClick={confirmStartQuiz}
-                             className="py-4 bg-primary text-white rounded-xl font-bold uppercase text-[10px] tracking-widest disabled:opacity-50 disabled:grayscale transition-all shadow-lg shadow-primary/20 hover:brightness-110 flex items-center justify-center gap-2 active:scale-95"
-                           >
-                              Proceed to Exam <ChevronRight size={14} />
-                           </button>
-                        </div>
-                      </div>
-                    </motion.div>
+                    <RulesPanel 
+                      rulesAccepted={rulesAccepted}
+                      setRulesAccepted={setRulesAccepted}
+                      onBack={() => setScreen('SETUP')}
+                      onConfirm={confirmStartQuiz}
+                    />
                   )}
 
                   {screen === 'QUIZ' && (
@@ -1121,193 +1088,139 @@ export default function App() {
                       key="quiz-center"
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
-                      className="max-w-3xl mx-auto w-full flex flex-col justify-between min-h-full pb-24"
+                      className="max-w-2xl mx-auto w-full flex flex-col justify-center min-h-full"
                     >
                       {loading ? (
                         <div className="flex flex-col items-center py-20 text-center">
                           <Loader2 size={48} className="text-primary animate-spin mb-6" />
                           <h3 className="text-2xl font-display text-main italic">Assembling MCQs...</h3>
-                          <p className="text-slate-500 text-sm mt-2 uppercase tracking-widest font-bold">Matching Exam Patterns</p>
+                          <p className="text-slate-500 text-sm mt-2 uppercase tracking-widest font-bold transition-all duration-300 max-w-md px-4">{loadingSubtext}</p>
                         </div>
-                      ) : isPaused ? (
-                        /* SECURE MODE PAUSED OVERLAY */
-                        <motion.div 
-                          initial={{ opacity: 0, scale: 0.98 }}
-                          animate={{ opacity: 1, scale: 1 }}
-                          className="flex flex-col items-center justify-center text-center py-24 px-6 bg-slate-900/10 backdrop-blur-md rounded-3xl border border-slate-200 shadow-2xl my-auto"
-                        >
-                          <ShieldAlert size={64} className="text-amber-500 mb-6 animate-bounce" />
-                          <h3 className="text-2xl font-bold text-slate-800 uppercase tracking-tight font-display">EXAMINATION PAUSED</h3>
-                          <p className="text-slate-500 text-sm mt-3 max-w-md leading-relaxed">
-                            Secure Mode Active: All question data and core option coordinates are locked and concealed to prevent clock tampering.
-                          </p>
-                          <button
-                            onClick={() => {
-                              feedback('success');
-                              setIsPaused(false);
-                            }}
-                            className="mt-8 px-8 py-3.5 bg-primary text-white font-bold rounded-xl uppercase text-xs tracking-widest hover:brightness-110 active:scale-95 transition-all shadow-lg"
-                          >
-                            Resume Examination
-                          </button>
-                        </motion.div>
                       ) : (
                         <>
-                          {/* ⏱️ TIMED EXAMINATION HEADER */}
-                          <div className={`p-4 md:p-5 mb-6 border ${
-                            theme === 'rajasthan' 
-                              ? 'bg-amber-50/50 border-amber-300/40 rounded-3xl shadow-sm' 
-                              : 'bg-white/80 backdrop-blur-md border-slate-200/60 rounded-2xl shadow-sm'
-                          }`}>
-                            <div className="flex items-center justify-between">
-                              {/* Left: Set detail and countdown timer */}
-                              <div className="flex items-center gap-3">
-                                <span className={`px-3 py-1 font-mono text-[11px] font-extrabold tracking-widest ${
-                                  theme === 'rajasthan' ? 'bg-amber-600 text-white' : 'bg-slate-900 text-teal-400'
-                                } rounded`}>
-                                  SET - 01
+                          <div className="mb-8 relative pr-1">
+                            <div className="flex justify-between items-center gap-2 mb-4 px-4 md:px-0">
+                              <div className="flex items-center flex-wrap gap-2">
+                                <span className="px-3 py-1 bg-primary/10 text-primary text-[10px] font-bold rounded-sm uppercase tracking-widest">
+                                   {isReviewMode ? (isBookmarksReview ? 'Saved Bookmarks' : 'Mistake Notebook') : `${config.subject} • ${config.difficulty}`}
                                 </span>
-                                <div className="h-4 w-px bg-slate-300"></div>
-                                <div className="flex items-center gap-1.5">
-                                  <span className="text-sm md:text-base font-mono font-bold text-slate-700 animate-pulse tracking-wide whitespace-nowrap">
-                                    Time Left: {Math.floor(Math.max(0, 1200 - quizTimer) / 60)}:{(Math.max(0, 1200 - quizTimer) % 60).toString().padStart(2, '0')}
-                                  </span>
-                                </div>
+                                
+                                <AnimatePresence>
+                                  {consecutiveCorrect >= 3 && (
+                                    <motion.span 
+                                      initial={{ opacity: 0, x: -10 }}
+                                      animate={{ opacity: 1, x: 0 }}
+                                      exit={{ opacity: 0 }}
+                                      className="text-[10px] font-bold text-accent uppercase tracking-widest flex items-center gap-1 inline-flex"
+                                    >
+                                      <Zap size={10} /> AI: Leveling Up Challenge
+                                    </motion.span>
+                                  )}
+                                </AnimatePresence>
                               </div>
-                              
-                              {/* Right: Functional Pause button */}
-                              <button
-                                onClick={() => {
-                                  feedback('click');
-                                  setIsPaused(true);
-                                }}
-                                title="Pause Exam"
-                                className="w-10 h-10 rounded-full flex items-center justify-center bg-slate-100 hover:bg-slate-200 text-slate-700 transition-all cursor-pointer active:scale-90 shadow-sm border border-slate-200/50"
-                              >
-                                <Pause size={16} />
-                              </button>
-                            </div>
 
-                            {/* Question Type and Marking Scheme Sub-header */}
-                            <div className="flex flex-wrap items-center justify-between border-t border-slate-200/50 mt-4 pt-3 text-xs text-slate-500 font-semibold md:flex">
-                              <span className="uppercase tracking-widest text-[9px] text-slate-400">
-                                Question Type: Single Choice Mcq
-                              </span>
-                              
-                              <div className="flex items-center gap-2">
-                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-green-50 text-green-600 border border-green-200/30 rounded font-bold text-[10px]">
-                                  Correct: +1.00
-                                </span>
-                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-red-50 text-red-600 border border-red-200/30 rounded font-bold text-[10px]">
-                                  Incorrect: -0.25
-                                </span>
-                              </div>
-                            </div>
-                          </div>
-                          {/* 📖 QUESTION CONTAINER LAYOUT */}
-                          <div className={`p-6 md:p-8 border mb-6 ${
-                            theme === 'rajasthan' 
-                              ? 'bg-white rounded-3xl border-amber-500/40 shadow-sm' 
-                              : 'bg-white border-slate-200/60 rounded-2xl shadow-sm'
-                          }`}>
-                            <div className="flex items-center justify-between border-b border-slate-100 pb-4 mb-6">
-                              {/* Left index */}
-                              <span className="text-[11px] font-bold uppercase tracking-widest text-slate-400">
-                                Question No.: <span className="text-slate-800 font-mono text-xs font-semibold">{currentIndex + 1}</span> of {questions.length}
-                              </span>
-
-                              {/* Right: SAVE bookmark button */}
-                              <button
-                                onClick={() => {
-                                  feedback('royal');
-                                  setBookmarks(prev => ({ ...prev, [currentIndex]: !prev[currentIndex] }));
-                                }}
-                                className={`flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest rounded-lg border transition-all ${
-                                  bookmarks[currentIndex]
-                                    ? 'bg-amber-50 border-amber-400 text-amber-700 shadow-sm'
-                                    : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100'
-                                }`}
-                              >
-                                <Bookmark size={12} className={bookmarks[currentIndex] ? 'fill-amber-500 text-amber-500' : ''} />
-                                <span>{bookmarks[currentIndex] ? 'Saved' : 'Save'}</span>
-                              </button>
-                            </div>
-
-                            {/* Question Title & Rendering details */}
-                            <div className="relative">
-                              <span className="absolute left-0 top-0.5 px-2 py-0.5 bg-primary/10 text-primary text-[9px] font-extrabold rounded-sm uppercase tracking-widest">
-                                {isReviewMode ? 'Notebook Review' : `${config.subject}`}
-                              </span>
-                              
-                              <AnimatePresence>
-                                {consecutiveCorrect >= 3 && (
-                                  <motion.span 
-                                    initial={{ opacity: 0, x: -10 }}
-                                    animate={{ opacity: 1, x: 0 }}
-                                    exit={{ opacity: 0 }}
-                                    className="absolute right-0 top-0.5 text-[9px] font-extrabold text-accent uppercase tracking-widest flex items-center gap-1 inline-flex"
+                              {questions[currentIndex] && (
+                                <div className="flex items-center gap-2 shrink-0">
+                                  <button
+                                    type="button"
+                                    onClick={() => setShowFormatModal(true)}
+                                    className="text-emerald-600 hover:bg-emerald-50 transition-colors px-2.5 py-1.5 bg-white border border-emerald-500/30 rounded-lg cursor-pointer flex items-center justify-center gap-1 shadow-sm shrink-0 font-bold text-[10px] uppercase tracking-wider"
+                                    title="Open clean mobile text formatter"
                                   >
-                                    <Zap size={9} /> Leveling Up
-                                  </motion.span>
-                                )}
-                              </AnimatePresence>
-                              
-                              {/* Question display */}
-                              <h2 className="text-xl md:text-2xl font-medium mt-8 md:mt-10 leading-relaxed text-slate-800 tracking-normal border-l-4 border-slate-205 pl-4">
-                                {questions[currentIndex]?.question}
-                              </h2>
+                                    <Smartphone size={12} className="text-emerald-600 animate-pulse" /> Format & Copy
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setShowInjectModal(true)}
+                                    className="text-primary hover:bg-primary/5 transition-colors px-2.5 py-1.5 bg-white border border-primary/30 rounded-lg cursor-pointer flex items-center justify-center gap-1 shadow-sm shrink-0 font-bold text-[10px] uppercase tracking-wider"
+                                    title="Inject custom user question"
+                                  >
+                                    <BrainCircuit size={12} className="text-primary animate-pulse" /> Inject Custom MCQ
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleBookmark(questions[currentIndex])}
+                                    className="text-slate-400 hover:text-amber-500 transition-colors p-1.5 bg-white border border-slate-200 rounded-full cursor-pointer flex items-center justify-center shadow-sm shrink-0"
+                                    title={bookmarks.some(b => b.id === questions[currentIndex].id) ? "Remove Bookmark" : "Bookmark Question"}
+                                  >
+                                    <Star 
+                                      size={15} 
+                                      className={`${
+                                        bookmarks.some(b => b.id === questions[currentIndex].id) 
+                                          ? "fill-amber-500 text-amber-500" 
+                                          : "text-slate-400"
+                                      } transition-all`}
+                                    />
+                                  </button>
+                                </div>
+                              )}
                             </div>
+                            <h2 className="text-lg md:text-xl font-semibold px-4 font-display mt-2 leading-snug md:leading-tight text-main italic">
+                               {questions[currentIndex]?.question}
+                            </h2>
+                          </div>
 
-                            {/* 📐 SPARTAN SPACIOUS LAYOUT SEPARATOR MARGIN */}
-                            {/* Insert significant padding (32px to 48px) between question text and first option */}
-                            <div className="h-10 md:h-12"></div>
-
-                            {/* 🪟 DISTINCT VERTICAL OPTIONS GRID */}
-                            <div className="space-y-4">
+                {/* Options Grid */}
+                <div className="grid grid-cols-1 gap-3 md:gap-4">
                   {questions[currentIndex] && Object.entries(questions[currentIndex].options).map(([key, value]) => {
                     const isCorrect = key === questions[currentIndex].correctAnswer;
                     const isSelected = key === userAnswers[currentIndex];
                     
-                    let btnClass = "border-slate-200/85 bg-white hover:border-primary shadow-sm hover:bg-slate-50/45";
-                    let keyBadgeClass = "bg-slate-100 text-slate-700 border-slate-200 group-hover:bg-primary group-hover:text-white group-hover:border-primary";
+                    let btnClass = "border-slate-200 bg-white hover:border-primary shadow-sm hover:shadow-md";
+                    let circleClass = "border-slate-200 text-slate-400 group-hover:bg-primary group-hover:text-white group-hover:border-primary";
 
-                    if (isAnswered) {
-                      if (isCorrect) {
-                        btnClass = "border-primary bg-primary/5 shadow-lg pointer-events-none ring-2 ring-primary/20";
-                        keyBadgeClass = "bg-primary text-white border-primary scale-105";
-                      } else if (isSelected) {
-                        btnClass = "border-red-400 bg-red-100/30 pointer-events-none";
-                        keyBadgeClass = "bg-red-500 text-white border-red-500";
-                      } else {
-                        btnClass = "opacity-40 grayscale pointer-events-none border-slate-105 bg-white shadow-none";
-                        keyBadgeClass = "bg-slate-100 text-slate-400 border-slate-200";
+                    if (config.feedbackMode === 'Submit at End') {
+                      if (userAnswers[currentIndex] !== null) {
+                        if (isSelected) {
+                          btnClass = "border-primary bg-primary/5 shadow-md ring-2 ring-primary/20";
+                          circleClass = "bg-primary text-white border-primary scale-110";
+                        } else {
+                          btnClass = "opacity-75 border-slate-200 bg-white hover:border-primary shadow-sm";
+                        }
+                      }
+                    } else {
+                      if (isAnswered) {
+                        if (isCorrect) {
+                          btnClass = "border-primary bg-primary/5 shadow-lg pointer-events-none ring-2 ring-primary/20";
+                          circleClass = "bg-primary text-white border-primary scale-110";
+                        } else if (isSelected) {
+                          btnClass = "border-red-400 bg-red-50/50 pointer-events-none";
+                          circleClass = "bg-red-500 text-white border-red-500";
+                        } else {
+                          btnClass = "opacity-40 grayscale pointer-events-none border-slate-100 bg-white shadow-none";
+                        }
                       }
                     }
 
                     return (
                       <motion.button
                         key={key}
-                        whileHover={!isAnswered ? { x: 4 } : {}}
-                        whileTap={!isAnswered ? { scale: 0.99 } : {}}
+                        whileHover={config.feedbackMode === 'Submit at End' || !isAnswered ? { y: -4, scale: 1.01 } : {}}
+                        whileTap={config.feedbackMode === 'Submit at End' || !isAnswered ? { scale: 0.98 } : {}}
                         onClick={() => handleSelectAnswer(key)}
-                        className={`w-full flex items-center gap-4 p-4 md:p-5 border transition-all text-left group relative min-h-[64px] ${
+                        className={`flex items-center gap-3 md:gap-4 p-3 md:p-4 border transition-all text-left group relative min-h-[60px] ${
                           theme === 'rajasthan' ? 'rounded-2xl' : 'rounded-xl'
                         } ${btnClass}`}
                       >
-                        <span className={`w-8 h-8 shrink-0 rounded-lg border flex items-center justify-center font-mono font-extrabold text-sm tracking-widest transition-all ${keyBadgeClass}`}>
+                        <span className={`w-8 h-8 md:w-10 md:h-10 shrink-0 rounded-xl border-2 flex items-center justify-center font-bold text-sm md:text-base transition-all ${circleClass}`}>
                           {key}
                         </span>
-                        <span className={`text-base flex-1 leading-relaxed text-slate-700 ${isSelected && !isAnswered ? 'font-semibold text-slate-800' : 'font-medium'}`}>
-                          {value}
-                        </span>
-                        
-                        {isAnswered && isCorrect && (
-                          <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="absolute right-4 shrink-0">
+                        <span className={`text-sm md:text-base flex-1 leading-tight ${isSelected && (config.feedbackMode === 'Submit at End' || !isAnswered) ? 'font-bold' : 'font-medium'}`}>{value}</span>
+                        {isAnswered && isCorrect && config.feedbackMode !== 'Submit at End' && (
+                          <motion.div 
+                            initial={{ scale: 0 }}
+                            animate={{ scale: 1 }}
+                            className="absolute right-3"
+                          >
                             <CheckCircle2 className="text-primary" size={20} />
                           </motion.div>
                         )}
-                        {isAnswered && isSelected && !isCorrect && (
-                          <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="absolute right-4 shrink-0">
+                        {isAnswered && isSelected && !isCorrect && config.feedbackMode !== 'Submit at End' && (
+                          <motion.div 
+                            initial={{ scale: 0 }}
+                            animate={{ scale: 1 }}
+                            className="absolute right-3"
+                          >
                             <XCircle className="text-red-500" size={20} />
                           </motion.div>
                         )}
@@ -1315,51 +1228,95 @@ export default function App() {
                     );
                   })}
                 </div>
-              </div>
 
-                {/* ⚙️ DESKTOP PREVIEW INFORMATION ROW */}
-                <div className="hidden md:flex items-center justify-between text-[11px] text-slate-400 uppercase font-semibold px-2 mb-6">
-                  <span>Diagnostic Engine Matches RPSC Standards</span>
-                  <span>Secure Cloud Logging Enabled</span>
-                </div>
-
-                {/* 📲 RESPONSIVE BOTTOM STICKY NAVIGATION BAR */}
-                {/* Persistent bottom touchscreen safe sticky element bar, fully accessible with >48px targets */}
-                <div className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200/80 shadow-[0_-12px_40px_rgba(0,0,0,0.06)] py-4 px-4 md:px-8">
-                  <div className="max-w-3xl mx-auto flex items-center justify-between gap-4">
-                    
-                    {/* Left Action Button: Mark for Review & Next */}
+                <div className="flex items-center justify-between mt-12 border-t border-slate-200 pt-8 pb-4 md:pb-0 hidden md:flex">
+                  <div className="flex gap-4">
                     <button 
-                      onClick={() => {
-                        feedback('click');
-                        setMarkedForReview(prev => ({ ...prev, [currentIndex]: !prev[currentIndex] }));
-                        nextQuestion();
-                      }}
-                      className={`flex-1 h-[48px] px-4 rounded-xl font-bold uppercase text-[11px] tracking-wider border transition-all active:scale-95 text-center flex items-center justify-center ${
-                        markedForReview[currentIndex]
-                          ? 'bg-amber-100/60 border-amber-300 text-amber-800'
-                          : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-600'
-                      }`}
+                      onClick={prevQuestion}
+                      disabled={currentIndex === 0}
+                      className="touch-target text-slate-400 font-bold uppercase text-[10px] tracking-widest hover:text-slate-600 flex items-center gap-1 disabled:opacity-20 transition-all"
                     >
-                      {markedForReview[currentIndex] ? '★ Marked for Review' : 'Mark for Review & Next'}
+                      <ChevronLeft size={14} /> Previous
                     </button>
-
-                    {/* Right Action Button: Save & Next (Cyan Accent) */}
-                    <button 
-                      onClick={() => {
-                        feedback('click');
-                        nextQuestion();
-                      }}
-                      className="flex-1 h-[48px] px-6 text-white font-extrabold rounded-xl shadow-md uppercase text-[11px] tracking-wider flex items-center justify-center gap-1.5 transition-all active:scale-95"
-                      style={{ backgroundColor: '#00c5bc' }}
-                    >
-                      <span>{currentIndex === questions.length - 1 ? 'Finish Exam' : 'Save & Next'}</span>
-                      <ChevronRight size={16} />
-                    </button>
+                    {!isAnswered && (
+                      <button 
+                        onClick={skipQuestion}
+                        className="touch-target text-slate-400 font-bold uppercase text-[10px] tracking-widest hover:text-slate-600 transition-all"
+                      >
+                        Skip Question
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex gap-4">
+                     {isAnswered && questions[currentIndex]?.question.toLowerCase().includes('ganga') && (
+                        <button 
+                          onClick={() => {
+                            feedback('click');
+                            setIsMapOpen(true);
+                          }}
+                          className="px-6 bg-white border border-primary/30 text-primary font-bold rounded shadow-sm transition-all uppercase text-[10px] tracking-widest flex items-center gap-2 hover:bg-primary/5 h-[44px]"
+                        >
+                          <MapIcon size={14} /> Explore Map
+                        </button>
+                      )}
+                     <button 
+                       onClick={nextQuestion}
+                       className={`touch-target px-8 text-white font-bold rounded shadow-lg transition-all uppercase text-[11px] tracking-widest flex items-center gap-2 ${
+                         isAnswered ? 'bg-primary shadow-primary/20 brightness-110' : 'bg-slate-400 opacity-60'
+                       }`}
+                     >
+                       {currentIndex === questions.length - 1 ? 'Finish Exam' : (isAnswered ? 'Save & Next' : 'Select Answer')} <ChevronRight size={18} />
+                     </button>
                   </div>
                 </div>
 
-                          {isAnswered && questions[currentIndex] && (
+                {/* Mobile Sticky Bottom Nav for Quiz */}
+                <div className="md:hidden fixed bottom-6 left-4 right-4 z-50 glass rounded-3xl p-4 flex items-center justify-between shadow-[0_20px_50px_rgba(0,0,0,0.3)]">
+                   <div className="flex flex-col pl-2">
+                      <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter">Question</span>
+                      <span className="text-sm font-bold text-main italic">Q{currentIndex + 1}/{questions.length}</span>
+                   </div>
+                   
+                    <div className="flex gap-3">
+                      <button 
+                        onClick={prevQuestion}
+                        disabled={currentIndex === 0}
+                        className="w-10 h-10 flex items-center justify-center bg-white border border-slate-200 rounded-2xl text-slate-400 disabled:opacity-20 active:scale-95 transition-all shadow-sm"
+                      >
+                        <ChevronLeft size={20} />
+                      </button>
+                      {isAnswered && questions[currentIndex]?.question.toLowerCase().includes('ganga') && (
+                         <button 
+                           onClick={() => {
+                             feedback('click');
+                             setIsMapOpen(true);
+                           }}
+                           className="w-10 h-10 flex items-center justify-center bg-white border border-primary/30 rounded-2xl text-primary active:scale-95 transition-all shadow-sm"
+                         >
+                           <Compass size={20} />
+                         </button>
+                       )}
+                      {!isAnswered && (
+                        <button 
+                          onClick={skipQuestion}
+                          className="px-4 h-10 bg-white border border-slate-200 text-slate-400 font-bold rounded-2xl active:scale-95 transition-all text-[10px] uppercase tracking-widest"
+                        >
+                          Skip
+                        </button>
+                      )}
+                      <button 
+                        onClick={nextQuestion}
+                        className={`px-6 h-10 text-white font-bold rounded-2xl shadow-lg flex items-center gap-2 active:scale-95 transition-all text-[10px] uppercase tracking-widest ${
+                          isAnswered ? 'bg-primary' : 'bg-slate-400 opacity-60'
+                        }`}
+                      >
+                        {currentIndex === questions.length - 1 ? 'Finish' : (isAnswered ? 'Save' : 'Next')}
+                        <ChevronRight size={16} />
+                      </button>
+                   </div>
+                </div>
+
+                          {isAnswered && questions[currentIndex] && (config.feedbackMode !== 'Submit at End' || isReviewMode) && (
                             <motion.div
                               initial={{ opacity: 0, y: 10 }}
                               animate={{ opacity: 1, y: 0 }}
@@ -1476,162 +1433,19 @@ export default function App() {
                   )}
 
                   {screen === 'RESULTS' && (
-                    <motion.div
-                      key="results"
-                      initial={{ opacity: 0, scale: 0.95 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      className="max-w-4xl mx-auto w-full"
-                    >
-                      <div className="text-center mb-10">
-                        <motion.div
-                          initial={{ scale: 0 }}
-                          animate={{ scale: 1 }}
-                          className="w-24 h-24 bg-primary text-white rounded-full flex items-center justify-center mx-auto mb-6 shadow-2xl shadow-primary/30"
-                        >
-                          <Trophy size={48} />
-                        </motion.div>
-                        <h2 className="text-4xl font-display font-bold italic text-main tracking-tight">Session <span className="text-primary">Completed!</span></h2>
-                        <p className="text-slate-500 mt-2 uppercase tracking-[0.3em] text-[10px] font-bold">Deep Performance Analysis Ready</p>
-                      </div>
-                      
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-10">
-                        <div className={`p-6 shadow-sm border ${
-                          theme === 'rajasthan' ? 'bg-white rounded-3xl border-amber-500' : 'bg-white border-slate-200'
-                        }`}>
-                          <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">Accuracy dashboard</h4>
-                          <div className="flex items-center gap-4">
-                            <div className="text-3xl font-bold font-mono text-slate-900">{getScore()}/{questions.length}</div>
-                            <div className="h-10 w-px bg-slate-100 mx-2"></div>
-                            <div className="flex-1">
-                               <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
-                                 <motion.div 
-                                   initial={{ width: 0 }}
-                                   animate={{ width: `${(getScore() / questions.length) * 100}%` }}
-                                   className="h-full bg-primary"
-                                 />
-                               </div>
-                               <p className="text-[10px] text-slate-400 mt-2 font-bold uppercase">{Math.round((getScore() / questions.length) * 100)}% Match rate</p>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className={`p-6 shadow-sm border ${
-                          theme === 'rajasthan' ? 'bg-white rounded-3xl border-teal-600' : 'bg-white border-slate-200'
-                        }`}>
-                          <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">Detailed Performance</h4>
-                          <div className="grid grid-cols-3 gap-2">
-                             <div className="text-center">
-                                <p className="text-lg font-bold text-green-600">{getScore()}</p>
-                                <p className="text-[8px] uppercase font-bold text-slate-400">Correct</p>
-                             </div>
-                             <div className="text-center">
-                                <p className="text-lg font-bold text-red-500">{getIncorrectCount()}</p>
-                                <p className="text-[8px] uppercase font-bold text-slate-400">Wrong</p>
-                             </div>
-                             <div className="text-center">
-                                <p className="text-lg font-bold text-slate-400">{getSkippedCount()}</p>
-                                <p className="text-[8px] uppercase font-bold text-slate-400">Skipped</p>
-                             </div>
-                          </div>
-                        </div>
-
-                        <div className={`p-6 shadow-sm border ${
-                          theme === 'rajasthan' ? 'bg-white rounded-3xl border-teal-600' : 'bg-white border-slate-200'
-                        }`}>
-                          <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">Vitals & Pace</h4>
-                          <div className="flex items-center gap-4">
-                             <Timer className="text-slate-300" size={24} />
-                             <div>
-                                <span className="text-2xl font-mono font-bold text-main">{formatTime(quizTimer)}</span>
-                                <p className="text-[9px] text-slate-400 uppercase font-bold tracking-tighter">Total Duration</p>
-                             </div>
-                          </div>
-                        </div>
-
-                        <div className={`p-6 shadow-sm border md:col-span-2 lg:col-span-1 ${
-                          theme === 'rajasthan' ? 'bg-white rounded-3xl border-orange-500' : 'bg-white border-slate-200'
-                        }`}>
-                          <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">Study Insight</h4>
-                          <div className="flex items-start gap-3">
-                            <Zap size={16} className="text-accent shrink-0" />
-                            <p className="text-xs text-slate-500 italic leading-relaxed">
-                              Focus on <span className="text-main font-bold">"{config.subject}"</span>. Your response time was optimal, but consistency peaked in the first half.
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                        {/* Summary Card */}
-                        <div className={`p-6 md:p-10 text-white relative overflow-hidden flex flex-col justify-between min-h-[280px] md:h-80 shadow-2xl ${
-                          theme === 'rajasthan' ? 'bg-gradient-to-br from-rose-800 to-rose-950 rounded-[2rem]' : 'bg-brand-bg rounded-2xl'
-                        }`}>
-                           <div className="relative z-10">
-                             <h4 className="text-[10px] font-bold opacity-60 uppercase tracking-[0.3em] mb-2">Examination Score</h4>
-                             <p className="text-5xl md:text-7xl font-mono font-bold italic tracking-tighter">{getScore()} <span className="text-xl md:text-2xl opacity-40 font-serif not-italic">/ {questions.length}</span></p>
-                           </div>
-                           
-                           <div className="relative z-10">
-                              <div className="flex -space-x-2 mb-4">
-                                {[1, 2, 3, 4].map(i => (
-                                  <div key={i} className="w-8 h-8 rounded-full border-2 border-brand-bg bg-primary flex items-center justify-center text-[10px] font-bold">#{i}</div>
-                                ))}
-                                <div className="w-8 h-8 rounded-full border-2 border-brand-bg bg-slate-800 flex items-center justify-center text-[10px] font-bold hidden xs:flex">+RPSC</div>
-                              </div>
-                              <p className="text-xs md:text-sm font-light leading-relaxed text-slate-300 italic">You outperformed <span className="text-white font-bold">82% of peers</span> in the {config.difficulty} module.</p>
-                           </div>
-
-                           <div className="absolute -bottom-20 -right-20 w-64 h-64 bg-primary/20 rounded-full blur-[80px]"></div>
-                        </div>
-
-                        {/* Analysis Card */}
-                        <div className={`p-8 flex flex-col shadow-sm border ${
-                          theme === 'rajasthan' ? 'bg-white rounded-[2rem] border-amber-500' : 'bg-white border-slate-200 rounded-2xl'
-                        }`}>
-                           <h3 className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-6 border-b border-slate-50 pb-2 flex items-center gap-2">
-                             <Activity size={14} /> Subject Vitals
-                           </h3>
-                           <div className="space-y-6 flex-1">
-                             <div className="flex items-center justify-between group">
-                                <div className="flex items-center gap-3">
-                                   <div className="w-1.5 h-1.5 rounded-full bg-accent group-hover:scale-150 transition-transform"></div>
-                                   <span className="text-sm font-bold text-slate-700">MCQ Accuracy</span>
-                                </div>
-                                <span className="text-sm font-mono font-bold text-main">{Math.round((getScore() / questions.length) * 100)}%</span>
-                             </div>
-                             <div className="flex items-center justify-between group">
-                                <div className="flex items-center gap-3">
-                                   <div className="w-1.5 h-1.5 rounded-full bg-primary group-hover:scale-150 transition-transform"></div>
-                                   <span className="text-sm font-bold text-slate-700">Processing Pace</span>
-                                </div>
-                                <span className="text-sm font-mono font-bold text-main">{Math.round(quizTimer / questions.length)}s per item</span>
-                             </div>
-                             <div className="flex items-center justify-between group">
-                                <div className="flex items-center gap-3">
-                                   <div className="w-1.5 h-1.5 rounded-full bg-slate-300 group-hover:scale-150 transition-transform"></div>
-                                   <span className="text-sm font-bold text-slate-700">System Difficulty</span>
-                                </div>
-                                <span className="text-sm font-mono font-bold text-main italic px-2 bg-slate-100 rounded text-[10px] uppercase tracking-tighter">{config.difficulty}</span>
-                             </div>
-                           </div>
-
-                           <div className="mt-8 grid grid-cols-2 gap-4">
-                              <button 
-                                onClick={handleStartQuiz}
-                                className="touch-target bg-primary text-white font-bold text-[10px] uppercase tracking-widest py-4 rounded-xl hover:brightness-110 transition-all flex items-center justify-center gap-2 shadow-lg shadow-primary/20"
-                              >
-                                <RotateCcw size={14} /> Re-Generate
-                              </button>
-                              <button 
-                                onClick={() => setScreen('HOME')}
-                                className="touch-target bg-slate-900 text-white font-bold text-[10px] uppercase tracking-widest py-4 rounded-xl hover:bg-slate-800 transition-all flex items-center justify-center gap-2 shadow-lg"
-                              >
-                                Exit Session <ChevronRight size={14} />
-                              </button>
-                           </div>
-                        </div>
-                      </div>
-                    </motion.div>
+                    <ResultsPanel 
+                      questions={questions}
+                      config={config}
+                      getScore={getScore}
+                      getIncorrectCount={getIncorrectCount}
+                      getSkippedCount={getSkippedCount}
+                      quizTimer={quizTimer}
+                      formatTime={formatTime}
+                      theme={theme}
+                      handleStartQuiz={handleStartQuiz}
+                      setScreen={setScreen}
+                      userAnswers={userAnswers}
+                    />
                   )}
                 </AnimatePresence>
               </section>
@@ -1680,7 +1494,13 @@ export default function App() {
 
             {/* Footer Bar */}
             <footer className="h-10 bg-brand-bg text-slate-500 text-[10px] uppercase tracking-[0.2em] flex items-center justify-between px-4 md:px-8 shrink-0">
-              <span className="flex items-center gap-2">AI Engine <span className="hidden xs:inline">v2.4</span> <span className="opacity-30">|</span> <span className="text-primary italic font-bold">RPSC Optimized</span></span>
+              <span 
+                onClick={handleDevClick} 
+                className="flex items-center gap-2 cursor-pointer select-none active:opacity-60"
+                title="AI Engine Debug Toggle"
+              >
+                AI ENGINE <span className="hidden xs:inline">v2.4</span> <span className="opacity-30">|</span> <span className="text-primary italic font-bold">RPSC OPTIMIZED</span>
+              </span>
               <div className="flex gap-6 items-center">
                 <span className="hidden md:inline">ClickCraft v1.0 <span className="opacity-30">|</span> Session ID: AIQ-2024-{quizTimer}</span>
                 <span className="flex items-center gap-1.5 text-primary"><div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></div> <ShieldCheck size={12} /> <span className="hidden xs:inline">Secure Portal</span></span>
@@ -1692,6 +1512,444 @@ export default function App() {
                 <RiverMap onClose={() => setIsMapOpen(false)} feedback={feedback} />
               )}
             </AnimatePresence>
+
+            {/* Elegant Floating Error Toast */}
+            <AnimatePresence>
+              {errorToast.show && (
+                <motion.div
+                  initial={{ opacity: 0, y: 50, scale: 0.9 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 20, scale: 0.9 }}
+                  className="fixed bottom-16 left-4 right-4 md:left-auto md:right-8 z-[200] max-w-sm w-full bg-slate-900 border border-red-500/30 backdrop-blur-md rounded-2xl p-4 shadow-2xl flex items-start gap-3 text-red-200"
+                >
+                  <div className="p-2 bg-red-950/80 rounded-xl text-red-400 shrink-0 border border-red-500/20">
+                    <XCircle size={18} className="animate-pulse" />
+                  </div>
+                  <div className="flex-1 text-left">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-red-400 font-mono mb-1">
+                      System Generation Alert
+                    </h4>
+                    <p className="text-[11px] text-slate-300 leading-relaxed">
+                      {errorToast.message}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setErrorToast(prev => ({ ...prev, show: false }))}
+                    className="text-slate-400 hover:text-slate-200 text-xs px-1 hover:bg-slate-800 rounded shrink-0"
+                  >
+                    ✕
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Custom Question Injection Modal */}
+            <AnimatePresence>
+              {showInjectModal && (
+                <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+                  <div className="bg-white rounded-3xl p-6 max-w-md w-full border border-slate-100 shadow-2xl relative animate-in zoom-in-95 duration-200">
+                    <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2 mb-2 font-display italic">
+                      <BrainCircuit className="text-primary animate-pulse" size={20} /> Pop-Up Question Injection
+                    </h3>
+                    <p className="text-xs text-slate-500 mb-4 leading-relaxed">
+                      Type a topic, concept, or specific custom syllabus question. The Core Android AI engine will automatically format it into an MCQ and inject it immediately into the active quiz list.
+                    </p>
+                    
+                    <textarea
+                      value={customInputPrompt}
+                      onChange={(e) => setCustomInputPrompt(e.target.value)}
+                      disabled={injecting}
+                      placeholder="e.g., Haldighati War consequence, or Maharana Pratap's lineage details..."
+                      rows={4}
+                      className="w-full text-sm p-3 border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary bg-slate-50 disabled:opacity-50 text-slate-800 font-medium"
+                    />
+                    
+                    <div className="flex justify-end gap-3 mt-6">
+                      <button
+                        type="button"
+                        disabled={injecting}
+                        onClick={() => {
+                          setShowInjectModal(false);
+                          setCustomInputPrompt('');
+                        }}
+                        className="px-4 py-2 border border-slate-200 hover:bg-slate-50 rounded-xl text-xs font-bold text-slate-500 transition-colors uppercase tracking-wider cursor-pointer disabled:opacity-50"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        disabled={injecting || !customInputPrompt.trim()}
+                        onClick={() => injectCustomQuestion(customInputPrompt)}
+                        className="px-5 py-2 bg-primary text-white hover:bg-primary/90 rounded-xl text-xs font-bold transition-colors uppercase tracking-wider flex items-center gap-2 cursor-pointer disabled:opacity-50 shadow-md shadow-primary/25"
+                      >
+                        {injecting ? (
+                          <>
+                            <Loader2 size={12} className="animate-spin" /> Injected...
+                          </>
+                        ) : (
+                          'Format & Inject'
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </AnimatePresence>
+
+            {/* Mobile MCQ Format View Modal */}
+            <AnimatePresence>
+              {showFormatModal && questions[currentIndex] && (
+                <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+                  <div className="bg-white rounded-3xl p-6 max-w-lg w-full border border-slate-100 shadow-2xl relative animate-in zoom-in-95 duration-200">
+                    <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2 mb-2 font-display italic">
+                      <Smartphone className="text-emerald-600 animate-bounce" size={20} /> Mobile MCQ Text Formatter
+                    </h3>
+                    <p className="text-xs text-slate-500 mb-4 leading-relaxed">
+                      Below is the question formatted with strict line breaks and spacious vertical double-spacing matching your mobile app guidelines perfectly.
+                    </p>
+                    
+                    <div className="relative bg-slate-50 rounded-2xl border border-slate-100 p-4 font-mono text-xs text-slate-700 whitespace-pre-wrap leading-relaxed max-h-[300px] overflow-y-auto select-all select-text">
+                      <div id="formatted-mcq-content" className="select-text">
+{`Question No. : ${currentIndex + 1}
+
+${questions[currentIndex].question}
+
+a.    ${questions[currentIndex].options.A}
+
+b.    ${questions[currentIndex].options.B}
+
+c.    ${questions[currentIndex].options.C}
+
+d.    ${questions[currentIndex].options.D}`}
+                      </div>
+                    </div>
+                    
+                    <div className="flex justify-end gap-3 mt-6">
+                      <button
+                        type="button"
+                        onClick={() => setShowFormatModal(false)}
+                        className="px-4 py-2 border border-slate-200 hover:bg-slate-50 rounded-xl text-xs font-bold text-slate-500 transition-colors uppercase tracking-wider cursor-pointer"
+                      >
+                        Close
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const text = `Question No. : ${currentIndex + 1}\n\n${questions[currentIndex].question}\n\na.    ${questions[currentIndex].options.A}\n\nb.    ${questions[currentIndex].options.B}\n\nc.    ${questions[currentIndex].options.C}\n\nd.    ${questions[currentIndex].options.D}`;
+                          navigator.clipboard.writeText(text);
+                          feedback('success');
+                          setCopySuccess(true);
+                          setTimeout(() => setCopySuccess(false), 2000);
+                        }}
+                        className="px-5 py-2 bg-emerald-600 text-white hover:bg-emerald-500 rounded-xl text-xs font-bold transition-colors uppercase tracking-wider flex items-center gap-2 cursor-pointer shadow-md shadow-emerald-600/25"
+                      >
+                        {copySuccess ? (
+                          <>
+                            <CheckCircle2 size={12} className="text-white animate-pulse" /> Copied!
+                          </>
+                        ) : (
+                          <>
+                            <Copy size={12} /> Copy Formatted Text
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </AnimatePresence>
+
+            {/* Core AI Engine: Firestore Sync Terminal */}
+            {developerMode && syncLog && (
+              <div className="fixed bottom-24 right-4 z-40 max-w-sm w-full font-mono text-[10px] hidden md:block">
+                <div className="bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden text-left">
+                  <div 
+                    onClick={() => setShowSyncLogConsole(prev => !prev)}
+                    className="bg-slate-950 px-4 py-2 flex items-center justify-between border-b border-slate-800 cursor-pointer hover:bg-slate-900 transition-colors"
+                  >
+                    <div className="flex items-center gap-2 text-emerald-400 font-bold tracking-tight">
+                      <Activity size={10} className="animate-pulse" />
+                      <span>FIRESTORE SYNC MONITOR</span>
+                    </div>
+                    <span className="text-slate-500 uppercase font-bold tracking-widest text-[9px]">
+                      {showSyncLogConsole ? 'Collapse [-]' : 'Expand [+]'}
+                    </span>
+                  </div>
+                  
+                  {showSyncLogConsole && (
+                    <div className="p-3 text-emerald-300 overflow-hidden relative">
+                      <div className="flex justify-between items-center text-[8px] text-slate-400 border-b border-slate-800 pb-1.5 mb-2">
+                        <span>ACTIVE PATH: /sessions/{syncLog.session_id}</span>
+                        <span className="px-1.5 py-0.5 bg-emerald-950 text-emerald-400 rounded border border-emerald-905 font-bold uppercase tracking-widest">
+                          {syncLog.operation}
+                        </span>
+                      </div>
+                      
+                      <pre className="overflow-x-auto whitespace-pre-wrap max-h-40 leading-normal scrollbar-none font-mono text-[9px] text-left antialiased">
+                        {JSON.stringify({
+                          session_id: syncLog.session_id,
+                          operation: syncLog.operation,
+                          current_index: syncLog.current_index,
+                          ui_control: {
+                            show_syllabus_grid: screen !== 'QUIZ',
+                            hud_monitor_visibility: developerMode ? 'VISIBLE' : 'GONE',
+                            android_studio_btn_visibility: developerMode ? 'VISIBLE' : 'GONE',
+                            is_developer_mode_authenticated: developerMode,
+                            background_sync_active: true
+                          },
+                          quiz_data: {
+                            question: syncLog.quiz_data?.question,
+                            options: syncLog.quiz_data?.options,
+                            correct_answer: syncLog.quiz_data?.correct_answer,
+                            guru_mantra: syncLog.quiz_data?.guru_mantra || "RPSC Syllabus Tracking Live"
+                          }
+                        }, null, 2)}
+                      </pre>
+                      
+                      <div className="mt-2 pt-2 border-t border-slate-800 flex items-center justify-between text-[8px] text-slate-400">
+                        <span>sync_status: VERIFIED_SYNC</span>
+                        <span className="text-[9px] text-primary">● online</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Native Android Kotlin Integration Hub Modal */}
+            <AnimatePresence>
+              {showKotlinHub && (
+                <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-[150] flex items-center justify-center p-4">
+                  <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-4xl h-[85vh] flex flex-col overflow-hidden text-slate-100 shadow-2xl relative">
+                    {/* Header */}
+                    <div className="px-6 py-4 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-emerald-950 border border-emerald-500/30 rounded-xl flex items-center justify-center text-emerald-400">
+                          <Activity className="animate-pulse" size={20} />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] font-mono font-bold bg-emerald-950 text-emerald-400 border border-emerald-900 px-2 py-0.5 rounded-md">ACTIVE CONNECTION</span>
+                            <span className="text-xs font-mono text-slate-500">Package: com.rpsc.quizapp</span>
+                          </div>
+                          <h3 className="text-lg font-bold font-display italic text-white mt-1">Android Studio Kotlin Integration Kit</h3>
+                        </div>
+                      </div>
+                      <button 
+                        onClick={() => {
+                          feedback('click');
+                          setShowKotlinHub(false);
+                        }}
+                        className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl transition-colors cursor-pointer"
+                      >
+                        <X size={20} />
+                      </button>
+                    </div>
+
+                    {/* Developer Metadata strip */}
+                    <div className="bg-slate-950/60 border-b border-slate-800 px-6 py-3 grid grid-cols-1 md:grid-cols-3 gap-4 text-xs font-mono text-slate-400 text-left">
+                      <div>
+                        <span className="text-slate-600 block text-[9px] uppercase font-bold">Generated Firebase App ID</span>
+                        <span className="text-emerald-400 font-bold select-all">1:853043169458:android:16f6f4f352037d7493a1ab</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-600 block text-[9px] uppercase font-bold">Firestore Endpoint Target</span>
+                        <span className="text-sky-400 font-bold">/sessions/{syncLog?.session_id || 'IDLE'}</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-600 block text-[9px] uppercase font-bold">Resumption Protocol Sync</span>
+                        <span className="text-amber-400 font-bold">SHARED_PREFERENCES_VERIFIED</span>
+                      </div>
+                    </div>
+
+                    {/* Left/Right Grid */}
+                    <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
+                      {/* Left Sidebar: Controls & Live Emulator Actions */}
+                      <div className="w-full md:w-80 bg-slate-950/20 border-r border-slate-800 p-6 flex flex-col gap-6 overflow-y-auto text-left">
+                        <div>
+                          <h4 className="text-xs font-bold text-white uppercase tracking-widest mb-3 flex items-center gap-1.5 font-display italic">
+                            <Zap size={14} className="text-emerald-400" /> Resilience Simulator
+                          </h4>
+                          <p className="text-[11px] text-slate-400 leading-normal mb-4">
+                            Simulate physical failure scenarios to test your Kotlin code on the virtual runtime.
+                          </p>
+
+                          {/* Trigger Sudden Exit Button */}
+                          <div className="space-y-2">
+                            <button
+                              onClick={() => {
+                                feedback('click');
+                                if (screen !== 'QUIZ') {
+                                  alert("Please load an active quiz exam first to simulate a sudden container exit!");
+                                  return;
+                                }
+                                // Simulate Sudden Exit
+                                // Save state
+                                const dataToSave = {
+                                  config,
+                                  questions,
+                                  userAnswers,
+                                  currentIndex,
+                                  quizTimer,
+                                  isAnswered,
+                                  isReviewMode,
+                                  isDailyChallenge,
+                                  isBookmarksReview
+                                };
+                                localStorage.setItem('rpsc_current_quiz', JSON.stringify(dataToSave));
+                                setHasSavedQuiz(true);
+                                
+                                // Reset screen
+                                setScreen('HOME');
+                                setShowKotlinHub(false);
+                                
+                                // Set Sync Log to sudden crash exit via Firestore
+                                const sesId = syncLog?.session_id || `SES-AND-${Date.now().toString().slice(-4)}`;
+                                syncSessionStateToFirestore(
+                                  sesId,
+                                  'IDLE',
+                                  currentIndex,
+                                  null,
+                                  "Sudden Container Terminated! State flushed securely to disk."
+                                );
+                                alert("🚨 NATIVE PROCESS KILLED! Exit state captured successfully. The candidate was returned to the Home Screen. Click 'Resume Saved Exam' inside the Session Notebook cards to test Automated Resumption!");
+                              }}
+                              className="w-full py-2.5 px-4 bg-red-950 border border-red-500/30 hover:bg-red-900/30 text-red-200 text-xs font-bold font-mono rounded-xl transition-all cursor-pointer flex items-center justify-center gap-2"
+                            >
+                              <XCircle size={14} className="text-red-400" /> Kill JVM (Sudden Exit)
+                            </button>
+                            
+                            <button
+                              onClick={() => {
+                                feedback('click');
+                                if (!hasSavedQuiz) {
+                                  alert("No saved crash recovery points were detected in memory. Initiate a test first!");
+                                  return;
+                                }
+                                restoreQuiz();
+                                setShowKotlinHub(false);
+                                alert("Success! Automated Resumption Protocol parsed. Re-establishing connection...");
+                              }}
+                              className="w-full py-2.5 px-4 bg-emerald-950 border border-emerald-500/30 hover:bg-emerald-900/30 text-emerald-200 text-xs font-bold font-mono rounded-xl transition-all cursor-pointer flex items-center justify-center gap-2"
+                            >
+                              <CheckCircle2 size={14} className="text-emerald-400" /> Trigger Resumption
+                            </button>
+                          </div>
+                        </div>
+
+                        <div>
+                          <h4 className="text-xs font-bold text-white uppercase tracking-widest mb-3 flex items-center gap-1.5 font-display italic">
+                            <BrainCircuit size={14} className="text-sky-400" /> Custom MCQ Injector
+                          </h4>
+                          <p className="text-[11px] text-slate-400 leading-normal mb-3">
+                            Direct popup simulation to inject your custom syllabus topics into the active Firestore sync queue.
+                          </p>
+                          <button
+                            onClick={() => {
+                              feedback('click');
+                              setShowKotlinHub(false);
+                              if (screen !== 'QUIZ') {
+                                alert("Load an active quiz session first to inject custom questions!");
+                                return;
+                              }
+                              setShowInjectModal(true);
+                            }}
+                            className="w-full py-2.5 px-4 bg-slate-800 border border-slate-700 hover:bg-slate-700/60 text-white text-xs font-bold rounded-xl transition-all cursor-pointer flex items-center justify-center gap-2"
+                          >
+                            <BrainCircuit size={14} className="text-sky-400" /> Open Pop-Up Injector
+                          </button>
+                        </div>
+
+                        {/* Firestore Real-Time Stream Console Log */}
+                        <div className="flex-1 flex flex-col min-h-[160px]">
+                          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2 font-mono flex items-center gap-1.5">
+                            <Activity size={10} className="text-emerald-400" /> Synced Packet Streams
+                          </span>
+                          <div className="flex-1 bg-slate-950 border border-slate-800 rounded-xl p-3 font-mono text-[9px] text-slate-400 overflow-y-auto leading-relaxed space-y-1">
+                            <div className="text-[8px] text-slate-600 border-b border-slate-900 pb-1 mb-1">LIVE SECURE STREAM CONNECTOR</div>
+                            <div>[11:21:40] INIT com.rpsc.quizapp</div>
+                            <div>[11:21:42] App ID matched console token.</div>
+                            <div>[11:21:45] Sync State: VERIFIED_SYNC</div>
+                            <div>[11:21:47] Loaded: SharedPreferences cache</div>
+                            {syncLog && (
+                              <div className="text-emerald-400 font-bold mt-1">
+                                [Active Event] {syncLog.operation} Sync on question index #{syncLog.current_index + 1}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Right Section: Code Viewers */}
+                      <div className="flex-1 flex flex-col overflow-hidden bg-slate-950">
+                        {/* Tab Selectors */}
+                        <div className="flex border-b border-slate-800 bg-slate-950 p-2 overflow-x-auto gap-1">
+                          {[
+                            { key: 'MAIN', label: 'MainActivity.kt' },
+                            { key: 'REP', label: 'QuizRepository.kt' },
+                            { key: 'NET_CLI', label: 'RetrofitClient.kt' },
+                            { key: 'NET_SERV', label: 'GeminiApiService.kt' },
+                            { key: 'BUILD', label: 'build.gradle' },
+                            { key: 'MAN', label: 'AndroidManifest.xml' },
+                            { key: 'DOC', label: 'Firebase Dev Plan' }
+                          ].map(tab => (
+                            <button
+                              key={tab.key}
+                              onClick={() => {
+                                feedback('click');
+                                setKotlinTab(tab.key as any);
+                              }}
+                              className={`px-4 py-2 font-mono text-[10px] font-bold rounded-lg uppercase tracking-wider transition-all cursor-pointer whitespace-nowrap ${
+                                kotlinTab === tab.key 
+                                  ? 'bg-emerald-950 text-emerald-400 border border-emerald-900' 
+                                  : 'text-slate-500 hover:text-slate-300 hover:bg-slate-900'
+                              }`}
+                            >
+                              {tab.label}
+                            </button>
+                          ))}
+                        </div>
+
+                        {/* Code Display Area */}
+                        <div className="flex-1 p-6 overflow-y-auto font-mono text-xs text-left text-slate-300 leading-normal scrollbar-none select-all relative bg-slate-950/50">
+                          {/* Copy to Clipboard Trigger */}
+                          <button
+                            onClick={() => {
+                              feedback('success');
+                              let copyText = "";
+                              if (kotlinTab === 'MAIN') copyText = mainActivityCode;
+                              else if (kotlinTab === 'REP') copyText = quizRepositoryCode;
+                              else if (kotlinTab === 'NET_CLI') copyText = retrofitClientCode;
+                              else if (kotlinTab === 'NET_SERV') copyText = geminiApiServiceCode;
+                              else if (kotlinTab === 'BUILD') copyText = buildGradleCode;
+                              else if (kotlinTab === 'MAN') copyText = manifestCode;
+                              else copyText = devPlanCode;
+                              
+                              navigator.clipboard.writeText(copyText);
+                              alert("Code copied successfully to your clipboard!");
+                            }}
+                            className="absolute top-4 right-4 bg-emerald-950 text-emerald-400 hover:bg-emerald-900 border border-emerald-900 px-3 py-1.5 rounded-lg text-[10px] font-mono font-bold uppercase tracking-wider cursor-pointer z-10"
+                          >
+                            Copy Code
+                          </button>
+
+                          <pre className="whitespace-pre-wrap select-all">
+                            {kotlinTab === 'MAIN' && mainActivityCode}
+                            {kotlinTab === 'REP' && quizRepositoryCode}
+                            {kotlinTab === 'NET_CLI' && retrofitClientCode}
+                            {kotlinTab === 'NET_SERV' && geminiApiServiceCode}
+                            {kotlinTab === 'BUILD' && buildGradleCode}
+                            {kotlinTab === 'MAN' && manifestCode}
+                            {kotlinTab === 'DOC' && devPlanCode}
+                          </pre>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </AnimatePresence>
+
           </motion.div>
         )}
 

@@ -1,64 +1,70 @@
 @import "tailwindcss";
-@import "leaflet/dist/leaflet.css";
 
 @theme {
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-serif: "Playfair Display", ui-serif, Georgia, serif;
+  --font-sans: "Inter", "Noto Sans Devanagari", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
-  --font-display: "Space Grotesk", sans-serif;
   
-  /* Geometric Theme Variables */
   --color-primary: var(--primary);
   --color-accent: var(--accent);
   --color-brand-bg: var(--brand-bg);
   --color-page: var(--bg-page);
-
-  @keyframes river-flow {
-    from { stroke-dashoffset: 200; }
-    to { stroke-dashoffset: 0; }
-  }
-  
-  --animate-river-flow: river-flow 10s linear infinite;
+  --color-main: var(--text-main);
+  --color-border-theme: var(--border-color);
 }
 
 @layer base {
-  :root {
-    --primary: #6366f1; /* indigo-500 */
-    --accent: #14b8a6; /* teal-500 */
-    --brand-bg: #020617; /* slate-950 */
-    --bg-page: #0f172a; /* slate-900 */
-    --font-display: "Space Grotesk", sans-serif;
+  :root, [data-theme='geometric'] {
+    --primary: #2563eb; /* Clean Exam Blue */
+    --accent: #4f46e5;
+    --brand-bg: #f8fafc;
+    --bg-page: #f8fafc; /* Crisp paper background */
+    --text-main: #1e293b; /* Crisp dark charcoal for reading */
+    --border-color: #cbd5e1; /* Thin gray border */
+    --card-bg: #ffffff;
   }
 
   [data-theme='rajasthan'] {
-    --primary: #E91E63; /* Jaipur Pink */
-    --primary-dark: #7B1E3A; /* Royal Maroon */
-    --accent: #D4A017; /* Desert Gold */
-    --brand-bg: #7B1E3A;
-    --bg-page: #F5E6C8; /* Sand Beige */
-    --text-main: #2D1B15;
+    --primary: #fbbf24; /* Night study amber */
+    --accent: #38bdf8;
+    --brand-bg: #0f172a;
+    --bg-page: #0f172a; /* Night dark background */
+    --text-main: #e2e8f0; /* Soft contrast white */
+    --border-color: #334155; /* Soft contrast slate border */
+    --card-bg: #1e293b;
   }
 }
 
 @layer base {
-  .theme-rajasthan {
-    --color-main: var(--text-main);
-    --card-shadow: 0 10px 15px -3px rgba(123, 30, 58, 0.1), 0 4px 6px -4px rgba(123, 30, 58, 0.1);
-    background-image: url('https://www.transparenttextures.com/patterns/cubes.png');
-  }
-  .theme-geometric {
-    --color-main: #f1f5f9;
-    --card-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.2), 0 8px 10px -6px rgba(0, 0, 0, 0.2);
+  body {
+    @apply antialiased bg-page text-main font-sans selection:bg-primary/20 transition-colors duration-200;
   }
 }
 
 @layer utilities {
-  .glass {
-    @apply backdrop-blur-xl bg-white/5 border border-white/10;
+  .exam-container {
+    @apply max-w-2xl mx-auto w-full px-4;
   }
-  
-  .premium-btn {
-    @apply relative overflow-hidden transition-all duration-300 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed;
+
+  .exam-card {
+    @apply border border-border-theme bg-[var(--card-bg)] shadow-none p-4 md:p-6;
+  }
+
+  /* Real exam paper rule layout */
+  .exam-question-text {
+    @apply font-sans font-medium text-[15px] md:text-[16px] leading-[1.6] text-main mb-4 tracking-wide;
+  }
+
+  .exam-option-text {
+    @apply font-sans font-normal text-[14px] md:text-[15px] leading-relaxed text-main;
+  }
+
+  /* Thin crisp rectangular buttons */
+  .exam-btn {
+    @apply px-4 py-2 border border-border-theme bg-[var(--card-bg)] hover:bg-slate-50 hover:border-slate-400 text-main transition-colors text-xs font-semibold tracking-wide uppercase active:scale-[0.98] cursor-pointer;
+  }
+
+  .exam-btn-primary {
+    @apply px-4 py-2 bg-slate-900 border border-slate-900 text-white hover:bg-slate-800 transition-colors text-xs font-semibold tracking-wide uppercase cursor-pointer;
   }
 
   .touch-target {
@@ -66,19 +72,15 @@
   }
 }
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=JetBrains+Mono:ital,wght@0,400;0,500;1,400&family=Space+Grotesk:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+Devanagari:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
-body {
-  @apply antialiased;
-}
-
-/* Custom Scrollbar for premium feel */
+/* Custom Scrollbar for compact feel */
 ::-webkit-scrollbar {
-  width: 6px;
+  width: 4px;
 }
 ::-webkit-scrollbar-track {
   @apply bg-transparent;
 }
 ::-webkit-scrollbar-thumb {
-  @apply bg-slate-400/20 rounded-full hover:bg-slate-400/40;
+  @apply bg-slate-400/20 rounded-none;
 }

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
-import { BrainCircuit, ChevronRight, Languages } from 'lucide-react';
+import { BookOpen, Languages, ChevronRight } from 'lucide-react';
 import { useFeedback } from '../hooks/useFeedback';
 
 interface IntroScreenProps {
@@ -23,79 +23,66 @@ export default function IntroScreen({ onStart }: IntroScreenProps) {
 
   const content = {
     EN: {
-      heading: "Welcome to RPSC AI MCQ Master",
-      subheading: "Your Smart Study Partner",
-      body: "Practice, test, and improve your score with AI-generated quizzes tailored for RPSC exams. Study anytime, anywhere with personalized feedback.",
-      button: "Get Started",
-      footer: "Powered by ClickCraft"
+      heading: "RPSC AI MCQ Practice Portal",
+      subheading: "Official Rajasthan Competitive Exam Simulation",
+      body: "Conduct rapid sessions with AI-curated testing patterns aligning strictly with the RPSC commission syllabus guidelines. Clear questions, rigorous format, professional answers.",
+      button: "Start Practice System",
+      footer: "Rajasthan Public Service Commission • AI MCQ Portal Practice Suite"
     },
     HI: {
-      heading: "RPSC AI MCQ मास्टर में आपका स्वागत है",
-      subheading: "आपकी तैयारी का स्मार्ट साथी",
-      body: "राजस्थान लोक सेवा आयोग (RPSC) की परीक्षाओं के लिए AI-संचालित क्विज़ के साथ अभ्यास करें। अपनी प्रगति को ट्रैक करें और व्यक्तिगत प्रतिक्रिया के साथ अपनी तैयारी को बेहतर बनाएं।",
-      button: "शुरू करें",
-      footer: "Powered by ClickCraft"
+      heading: "RPSC AI MCQ अभ्यास पोर्टल",
+      subheading: "आधिकारिक राजस्थान प्रतियोगी परीक्षा सिमुलेशन",
+      body: "राजस्थान लोक सेवा आयोग (RPSC) के आधिकारिक पाठ्यक्रम और परीक्षा प्रारूप के अनुरूप AI-संचालित प्रश्नों के साथ अभ्यास करें। स्पष्ट प्रश्न, सटीक उत्तर कुंजी तथा गुरु-मंत्र विश्लेषण।",
+      button: "अभ्यास प्रणाली शुरू करें",
+      footer: "राजस्थान लोक सेवा आयोग • AI MCQ पोर्टल अभ्यास सुइट"
     }
   };
 
   const curr = content[lang];
 
   return (
-    <div className="min-h-screen bg-brand-bg flex flex-col items-center justify-center p-6 text-main text-center relative overflow-hidden">
-      {/* Background Decor (Geometric Balance Style) */}
-      <div className="absolute top-0 left-0 w-full h-full pointer-events-none">
-        <div className="absolute top-[-100px] left-[-100px] w-64 h-64 bg-primary/20 rounded-full blur-[80px]" />
-        <div className="absolute bottom-[-100px] right-[-100px] w-96 h-96 bg-accent/20 rounded-full blur-[100px]" />
+    <div className="min-h-screen bg-page flex flex-col items-center justify-center p-4 text-main relative overflow-hidden">
+      <div className="w-full max-w-xl border border-border-theme bg-[var(--card-bg)] p-6 md:p-10 shadow-none text-center relative z-10 transition-colors duration-200">
         
-        {/* Subtle geometric lines */}
-        <div className="absolute top-1/4 left-0 w-full h-px bg-white/5 -rotate-12"></div>
-        <div className="absolute top-3/4 left-0 w-full h-px bg-white/5 rotate-6"></div>
-      </div>
+        {/* Language Pill */}
+        <div className="flex justify-end mb-6">
+          <button 
+            type="button"
+            onClick={toggleLang}
+            className="flex items-center gap-1.5 px-3 py-1.5 border border-border-theme hover:bg-slate-50 text-[10px] font-bold uppercase tracking-widest text-slate-500 hover:text-slate-800 transition-colors"
+          >
+            <Languages size={12} />
+            {lang === 'EN' ? 'हिंदी' : 'ENGLISH'}
+          </button>
+        </div>
 
-      <motion.div
-        initial={{ y: -20, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        className="z-10 flex flex-col items-center max-w-2xl"
-      >
-        <button 
-          onClick={toggleLang}
-          className="mb-8 flex items-center gap-2 px-4 py-2 bg-white/5 border border-white/10 rounded-full hover:bg-white/10 transition-all text-xs font-bold uppercase tracking-widest"
-        >
-          <Languages size={14} />
-          {lang === 'EN' ? 'हिंदी में बदलें' : 'Switch to English'}
-        </button>
+        {/* Emblems / Subtitle */}
+        <div className="w-12 h-12 border border-border-theme text-primary mx-auto flex items-center justify-center mb-6">
+          <BookOpen size={20} />
+        </div>
 
-        <motion.div
-          animate={{ scale: [1, 1.05, 1] }}
-          transition={{ repeat: Infinity, duration: 4 }}
-          className="w-20 h-20 bg-primary/20 border-2 border-primary/40 rounded-2xl flex items-center justify-center shadow-2xl mb-8 rotate-45"
-        >
-          <div className="-rotate-45">
-            <BrainCircuit size={40} className="text-primary" />
-          </div>
-        </motion.div>
-
-        <h1 className="text-3xl sm:text-4xl md:text-5xl font-bold tracking-tight mb-2 font-display px-2">
+        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight mb-2 text-main font-sans">
           {curr.heading}
         </h1>
-        <p className="text-lg md:text-xl text-primary font-display italic mb-6">
+        
+        <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-6 border-b border-border-theme pb-4">
           {curr.subheading}
         </p>
         
-        <p className="text-base md:text-lg text-slate-400 mb-8 md:mb-10 leading-relaxed font-light px-4">
+        <p className="text-sm text-slate-500 mb-8 leading-relaxed font-normal">
           {curr.body}
         </p>
 
         <button
+          type="button"
           onClick={handleStart}
-          className="px-10 py-5 bg-primary text-white rounded-sm font-bold text-sm uppercase tracking-[0.2em] shadow-2xl shadow-primary/20 hover:brightness-110 active:scale-95 transition-all flex items-center gap-2 group"
+          className="w-full h-11 bg-slate-900 text-white font-bold text-xs uppercase tracking-[0.2em] hover:bg-slate-800 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
         >
-          {curr.button} <ChevronRight className="group-hover:translate-x-1 transition-transform" />
+          {curr.button} <ChevronRight size={14} />
         </button>
-      </motion.div>
+      </div>
 
-
-      <footer className="absolute bottom-8 left-0 w-full text-center text-slate-500 text-sm italic">
+      <footer className="mt-8 text-center text-slate-400 text-[10px] uppercase tracking-wider font-medium">
         {curr.footer}
       </footer>
     </div>
