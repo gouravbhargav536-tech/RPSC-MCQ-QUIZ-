@@ -23,6 +23,39 @@
         } catch (e) {
           console.warn("Failed to define custom window.fetch setter: ", e);
         }
+
+        // Suppress benign WebSocket/HMR errors and prevent them from showing as unhandled rejections or overlay errors
+        window.addEventListener('unhandledrejection', function(event) {
+          var reason = event.reason;
+          if (reason) {
+            var errStr = String(reason.message || reason).toLowerCase();
+            if (
+              errStr.indexOf('websocket') !== -1 ||
+              errStr.indexOf('closed without opened') !== -1 ||
+              errStr.indexOf('hmr') !== -1 ||
+              errStr.indexOf('ws:') !== -1 ||
+              errStr.indexOf('wss:') !== -1
+            ) {
+              console.debug('[Vite HMR] Suppressed unhandled websocket promise rejection:', reason);
+              event.preventDefault();
+              event.stopPropagation();
+            }
+          }
+        }, true);
+
+        window.addEventListener('error', function(event) {
+          var message = event.message || '';
+          var errStr = String(message).toLowerCase();
+          if (
+            errStr.indexOf('websocket') !== -1 ||
+            errStr.indexOf('closed without opened') !== -1 ||
+            errStr.indexOf('hmr') !== -1
+          ) {
+            console.debug('[Vite HMR] Suppressed websocket error:', message);
+            event.preventDefault();
+            event.stopPropagation();
+          }
+        }, true);
       })();
     </script>
   </head>

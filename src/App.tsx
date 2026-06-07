@@ -45,9 +45,9 @@ import IntroScreen from './components/IntroScreen';
 import AuthScreen from './components/AuthScreen';
 import RiverMap from './components/RiverMap';
 import { useFeedback } from './hooks/useFeedback';
-import { testFirebaseConnection, hasFirebaseVars } from './services/firebase';
+import { testFirebaseConnection, testRtdbConnection, hasFirebaseVars } from './services/firebase';
 import { firebaseService } from './services/firebaseService';
-import { Play, Pause, Bookmark, Terminal, AlertCircle, ShieldAlert, Settings as SettingsIcon } from 'lucide-react';
+import { Play, Pause, Bookmark, Terminal, AlertCircle, ShieldAlert, Settings as SettingsIcon, Database } from 'lucide-react';
 import axios from 'axios';
 
 export default function App() {
@@ -63,9 +63,22 @@ export default function App() {
   const [customApiKey, setCustomApiKey] = useState<string>(() => {
     return localStorage.getItem('custom_api_key') || '';
   });
+  const [firebaseProjectId, setFirebaseProjectId] = useState<string>(() => {
+    return localStorage.getItem('firebase_project_id') || 'rpscquizapp';
+  });
+  const [firebaseApiKey, setFirebaseApiKey] = useState<string>(() => {
+    return localStorage.getItem('firebase_api_key') || '';
+  });
+  const [firebaseAppId, setFirebaseAppId] = useState<string>(() => {
+    return localStorage.getItem('firebase_app_id') || '';
+  });
+  const [firebaseRtdbUrl, setFirebaseRtdbUrl] = useState<string>(() => {
+    return localStorage.getItem('firebase_rtdb_url') || 'https://rpscquizapp-default-rtdb.firebaseio.com';
+  });
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [testingApiKey, setTestingApiKey] = useState(false);
   const [testResult, setTestResult] = useState<{ status: 'valid' | 'invalid' | null; error?: string }>({ status: null });
+  const [quizError, setQuizError] = useState<string | null>(null);
 
   // Dynamically save state to localStorage when values are modified
   useEffect(() => {
@@ -75,6 +88,22 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('custom_api_key', customApiKey);
   }, [customApiKey]);
+
+  useEffect(() => {
+    localStorage.setItem('firebase_project_id', firebaseProjectId);
+  }, [firebaseProjectId]);
+
+  useEffect(() => {
+    localStorage.setItem('firebase_api_key', firebaseApiKey);
+  }, [firebaseApiKey]);
+
+  useEffect(() => {
+    localStorage.setItem('firebase_app_id', firebaseAppId);
+  }, [firebaseAppId]);
+
+  useEffect(() => {
+    localStorage.setItem('firebase_rtdb_url', firebaseRtdbUrl);
+  }, [firebaseRtdbUrl]);
 
   // Method to check validity of entered custom API key
   const handleTestApiKey = async () => {
@@ -123,33 +152,57 @@ export default function App() {
   const [isAnswered, setIsAnswered] = useState(false);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Diagnostics and premium examination layout states
+   // Diagnostics and premium examination layout states
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [markedForReview, setMarkedForReview] = useState<Record<number, boolean>>({});
   const [bookmarks, setBookmarks] = useState<Record<number, boolean>>({});
   const [firebaseStatus, setFirebaseStatus] = useState<'Checking' | 'Syncing' | 'Connected' | 'Not Configured' | 'Failed'>('Checking');
   const [firebaseError, setFirebaseError] = useState<string | null>(null);
+  const [rtdbStatus, setRtdbStatus] = useState<'Checking' | 'Syncing' | 'Connected' | 'Not Configured' | 'Failed'>('Checking');
+  const [rtdbError, setRtdbError] = useState<string | null>(null);
+  const [checkingConnections, setCheckingConnections] = useState(false);
 
-  // Trigger Firestore ping check on boot
-  useEffect(() => {
-    const checkFirebase = async () => {
-      setFirebaseStatus('Syncing');
-      try {
-        const res = await testFirebaseConnection();
-        if (res.active) {
-          setFirebaseStatus('Connected');
-          setFirebaseError(null);
-        } else {
-          setFirebaseStatus(hasFirebaseVars ? 'Failed' : 'Not Configured');
-          setFirebaseError(res.error || "Firebase Firestore database connection is unreachable.");
-        }
-      } catch (err: any) {
-        setFirebaseStatus('Failed');
-        setFirebaseError(err?.message || String(err));
+  const checkFirebaseConnections = async () => {
+    setCheckingConnections(true);
+    setFirebaseStatus('Syncing');
+    setRtdbStatus('Syncing');
+    
+    // Check Firestore
+    try {
+      const res = await testFirebaseConnection();
+      if (res.active) {
+        setFirebaseStatus('Connected');
+        setFirebaseError(null);
+      } else {
+        setFirebaseStatus(hasFirebaseVars ? 'Failed' : 'Not Configured');
+        setFirebaseError(res.error || "Firebase Firestore database connection is unreachable.");
       }
-    };
-    checkFirebase();
+    } catch (err: any) {
+      setFirebaseStatus('Failed');
+      setFirebaseError(err?.message || String(err));
+    }
+
+    // Check Realtime Database
+    try {
+      const resVal = await testRtdbConnection();
+      if (resVal.active) {
+        setRtdbStatus('Connected');
+        setRtdbError(null);
+      } else {
+        setRtdbStatus(hasFirebaseVars ? 'Failed' : 'Not Configured');
+        setRtdbError(resVal.error || "Firebase Realtime Database is unreachable.");
+      }
+    } catch (err: any) {
+      setRtdbStatus('Failed');
+      setRtdbError(err?.message || String(err));
+    }
+    setCheckingConnections(false);
+  };
+
+  // Trigger Firestore and RTDB ping check on boot
+  useEffect(() => {
+    checkFirebaseConnections();
   }, []);
 
   // Gamification state
@@ -316,12 +369,52 @@ export default function App() {
     };
   }, [screen, loading, isPaused]);
 
-  const startSetup = (subject: Subject) => {
+  const getCategoryIdentifier = (sub: string): string => {
+    switch (sub) {
+      case 'Rajasthan Current Affairs': return 'rajasthan_current_affairs';
+      case 'National Current Affairs': return 'national_current_affairs';
+      case 'Rajasthan GK': return 'rajasthan_gk';
+      case 'Indian GK': return 'indian_gk';
+      case 'Mathematics': return 'mathematics';
+      case 'Science': return 'science';
+      case 'Reasoning': return 'reasoning';
+      case 'Hindi': return 'hindi';
+      case 'English': return 'english';
+      default: return sub.toLowerCase().replace(/\s+/g, '_');
+    }
+  };
+
+  const startSetup = async (subject: Subject) => {
     feedback('click');
+    setLoading(true);
+    setQuizError(null);
     setConfig(prev => ({ ...prev, subject }));
     setIsReviewMode(false);
     setIsDailyChallenge(false);
-    setScreen('SETUP');
+    setScreen('QUIZ');
+    
+    const categoryIdent = getCategoryIdentifier(subject);
+    try {
+      console.log(`[RTDB Fetch] Querying quizzes under category "${categoryIdent}"`);
+      const rtdbQuestions = await firebaseService.fetchQuizzesByCategory(categoryIdent);
+      
+      if (rtdbQuestions && rtdbQuestions.length > 0) {
+        setQuestions(rtdbQuestions);
+        setCurrentIndex(0);
+        setQuizTimer(0);
+        setIsAnswered(false);
+      } else {
+        throw new Error(
+          `No quizzes found in Firebase Realtime Database at the path '/quizzes' for category identifier "${categoryIdent}". Please ensure some objects with 'category' matching "${categoryIdent}" exist at that path.`
+        );
+      }
+    } catch (error: any) {
+      console.error("RTDB Quiz loading failed:", error);
+      setQuizError(error?.message || "Failed to fetch quizzes from Realtime Database.");
+      setScreen('SETUP');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const startMistakeReview = () => {
@@ -438,6 +531,7 @@ export default function App() {
   const confirmStartQuiz = async () => {
     feedback('click');
     setLoading(true);
+    setQuizError(null);
     setScreen('QUIZ');
     try {
       const generatedQuestions = await generateQuizQuestions(config);
@@ -446,8 +540,9 @@ export default function App() {
       setCurrentIndex(0);
       setQuizTimer(0);
       setIsAnswered(false);
-    } catch (error) {
-      alert("Error generating quiz. Please try again.");
+    } catch (error: any) {
+      console.error("Quiz generation failed:", error);
+      setQuizError(error?.message || "Error generating quiz. Please try again.");
       setScreen('SETUP');
     } finally {
       setLoading(false);
@@ -598,9 +693,50 @@ export default function App() {
                       {firebaseStatus === 'Connected' && 'CONNECTED (Auto-Polling)'}
                       {firebaseStatus === 'Syncing' && 'SYNCING PING...'}
                       {firebaseStatus === 'Not Configured' && 'LOCAL FALLBACK'}
-                      {firebaseStatus === 'Failed' && 'STREAM DISCONNECTED / TIMEOUT'}
+                      {firebaseStatus === 'Failed' && 'FAILED / OFFLINE'}
                       {firebaseStatus === 'Checking' && 'CHECKING...'}
                     </span>
+                  </div>
+
+                  {/* Firebase Realtime Database Status */}
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400">Realtime DB Connection:</span>
+                    <span className={`px-2 py-0.5 border rounded text-[10px] font-bold ${
+                      rtdbStatus === 'Connected' 
+                        ? 'bg-green-500/10 text-green-400 border-green-500/30'
+                        : rtdbStatus === 'Syncing'
+                          ? 'bg-amber-500/10 text-amber-400 border-amber-500/30 animate-pulse'
+                          : rtdbStatus === 'Not Configured'
+                            ? 'bg-slate-500/10 text-slate-400 border-slate-500/30'
+                            : 'bg-red-500/10 text-red-400 border-red-500/30'
+                    }`}>
+                      {rtdbStatus === 'Connected' && 'CONNECTED (RTDB_LIVE)'}
+                      {rtdbStatus === 'Syncing' && 'PINGING RTDB...'}
+                      {rtdbStatus === 'Not Configured' && 'LOCAL FALLBACK'}
+                      {rtdbStatus === 'Failed' && 'FAILED / TIMEOUT'}
+                      {rtdbStatus === 'Checking' && 'CHECKING...'}
+                    </span>
+                  </div>
+
+                  {/* Manual trigger for checking diagnostics */}
+                  <div className="pt-2">
+                    <button
+                      onClick={() => {
+                        feedback('click');
+                        checkFirebaseConnections();
+                      }}
+                      disabled={checkingConnections}
+                      className="w-full text-center py-2 bg-slate-800 text-teal-400 border border-slate-700 text-[10px] font-bold uppercase rounded hover:bg-slate-750 active:scale-95 transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                    >
+                      {checkingConnections ? (
+                        <>
+                          <Loader2 size={12} className="animate-spin" />
+                          <span>Testing Connections...</span>
+                        </>
+                      ) : (
+                        <span>Run Connection Tests</span>
+                      )}
+                    </button>
                   </div>
                 </div>
 
@@ -632,8 +768,19 @@ export default function App() {
                   </div>
 
                   {firebaseError && (
-                    <div className="bg-red-900/10 border border-red-500/20 text-red-400 p-2.5 rounded text-[11px]">
-                      <span className="font-bold">Active Connection Error Log:</span> {firebaseError}
+                    <div className="bg-red-950/40 border border-red-500/30 text-red-100 p-3 rounded-lg text-[11px] leading-relaxed">
+                      <span className="font-bold text-red-400 block mb-1">⚠️ Firestore Connection Error:</span> 
+                      <p className="font-mono text-[10px] bg-red-950/20 p-1.5 rounded">{firebaseError}</p>
+                    </div>
+                  )}
+
+                  {rtdbError && (
+                    <div className="bg-red-950/40 border border-red-500/30 text-red-100 p-3 rounded-lg text-[11px] leading-relaxed">
+                      <span className="font-bold text-red-400 block mb-1">⚠️ Realtime DB Connection Error:</span> 
+                      <p className="font-mono text-[10px] bg-red-950/20 p-1.5 rounded">{rtdbError}</p>
+                      <p className="text-[10px] text-slate-400 mt-1.5 italic">
+                        Verify that your Realtime Database matches your active Project ID, and your security rules allowed reading the `/quizzes` path.
+                      </p>
                     </div>
                   )}
                 </div>
@@ -1100,6 +1247,35 @@ export default function App() {
                            <div className="text-center md:text-left">
                              <h2 className="text-2xl md:text-3xl font-display text-main">{config.subject}</h2>
                              <p className="text-xs md:text-sm text-slate-500 italic">Configuration & AI Tuning</p>
+                             {quizError && (
+                               <div className="mt-4 p-4 bg-red-50 border-l-4 border-red-500 rounded-lg text-red-750 flex flex-col gap-2 shadow-sm text-left">
+                                 <div className="flex items-center gap-2 font-bold text-sm">
+                                   <AlertCircle size={16} className="text-red-500" />
+                                   <span>API Generation Error</span>
+                                 </div>
+                                 <p className="text-xs text-red-650 font-medium leading-relaxed normal-case font-sans">
+                                   {quizError}
+                                 </p>
+                                 <div className="mt-1.5 flex gap-3 text-[10px] font-bold uppercase tracking-widest font-sans">
+                                   <button
+                                     onClick={() => {
+                                       setSettingsOpen(true);
+                                       setQuizError(null);
+                                     }}
+                                     className="text-red-700 hover:text-red-900 underline flex items-center gap-1 cursor-pointer"
+                                   >
+                                     Configure Custom API Key
+                                   </button>
+                                   <span className="text-slate-300">|</span>
+                                   <button
+                                     onClick={() => setQuizError(null)}
+                                     className="text-slate-500 hover:text-slate-800 cursor-pointer"
+                                   >
+                                     Dismiss
+                                   </button>
+                                 </div>
+                                </div>
+                              )}
                            </div>
                         </div>
 
@@ -1993,6 +2169,72 @@ export default function App() {
                           </div>
                         </motion.div>
                       )}
+                      {/* Firebase Configuration Section */}
+                      <div className="border-t pt-5 border-slate-100">
+                        <h4 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-3 flex items-center gap-1.5">
+                          <Database size={13} className="text-primary" />
+                          <span>Firebase GCP Configuration</span>
+                        </h4>
+
+                        <div className="space-y-4">
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                              Firebase Project ID
+                            </label>
+                            <input 
+                              type="text"
+                              value={firebaseProjectId}
+                              onChange={(e) => setFirebaseProjectId(e.target.value)}
+                              placeholder="rpscquizapp"
+                              className="w-full bg-slate-50 border border-slate-200 p-2.5 text-xs font-semibold text-slate-700 focus:border-primary outline-none focus:ring-1 focus:ring-primary/20 rounded-lg"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                              Realtime Database URL
+                            </label>
+                            <input 
+                              type="text"
+                              value={firebaseRtdbUrl}
+                              onChange={(e) => setFirebaseRtdbUrl(e.target.value)}
+                              placeholder="https://rpscquizapp-default-rtdb.firebaseio.com"
+                              className="w-full bg-slate-50 border border-slate-200 p-2.5 text-xs font-mono text-slate-600 focus:border-primary outline-none focus:ring-1 focus:ring-primary/20 rounded-lg"
+                            />
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                                App ID (Optional)
+                              </label>
+                              <input 
+                                type="text"
+                                value={firebaseAppId}
+                                onChange={(e) => setFirebaseAppId(e.target.value)}
+                                placeholder="1:5303:..."
+                                className="w-full bg-slate-50 border border-slate-200 p-2 text-[11px] text-slate-500 focus:border-primary outline-none rounded-lg"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                                API Key (Optional)
+                              </label>
+                              <input 
+                                type="password"
+                                value={firebaseApiKey}
+                                onChange={(e) => setFirebaseApiKey(e.target.value)}
+                                placeholder="••••••••••••"
+                                className="w-full bg-slate-50 border border-slate-200 p-2 text-[11px] text-slate-500 focus:border-primary outline-none rounded-lg"
+                              />
+                            </div>
+                          </div>
+
+                          <p className="text-[10px] text-slate-400 leading-relaxed italic">
+                            Modifying these will update your active database target to your custom RTDB instance. Make sure path `/quizzes` is formatted.
+                          </p>
+                        </div>
+                      </div>
                     </div>
 
                     {/* Footer / Confirm button */}
@@ -2001,6 +2243,24 @@ export default function App() {
                         onClick={() => {
                           feedback('click');
                           setSettingsOpen(false);
+                          
+                          const oldPrj = localStorage.getItem('firebase_project_id') || 'rpscquizapp';
+                          const oldUrl = localStorage.getItem('firebase_rtdb_url') || 'https://rpscquizapp-default-rtdb.firebaseio.com';
+                          const oldKey = localStorage.getItem('firebase_api_key') || '';
+                          const oldId = localStorage.getItem('firebase_app_id') || '';
+
+                          if (
+                            oldPrj !== firebaseProjectId || 
+                            oldUrl !== firebaseRtdbUrl || 
+                            oldKey !== firebaseApiKey || 
+                            oldId !== firebaseAppId
+                          ) {
+                            localStorage.setItem('firebase_project_id', firebaseProjectId);
+                            localStorage.setItem('firebase_rtdb_url', firebaseRtdbUrl);
+                            localStorage.setItem('firebase_api_key', firebaseApiKey);
+                            localStorage.setItem('firebase_app_id', firebaseAppId);
+                            window.location.reload();
+                          }
                         }}
                         className={`touch-target px-5 py-2.5 bg-primary text-white font-bold text-xs uppercase tracking-widest rounded-xl hover:brightness-115 active:scale-95 transition-all shadow-md shadow-primary/20`}
                       >
