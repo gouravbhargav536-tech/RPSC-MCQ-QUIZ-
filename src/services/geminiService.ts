@@ -32,15 +32,16 @@ export async function generateQuizQuestions(config: QuizConfig): Promise<Questio
     
     CRITICAL INSTRUCTIONS:
     1. LATEST DATA: Use real concepts, syllabus details, and actual factual events from Rajasthan and India.
-    2. TRICKY QUESTIONS: For the New Pattern, use statement-based questions (e.g., "Which of these statements about X is INCORRECT?"). Use confusing options that test deep understanding.
+    2. TRICKY QUESTIONS: Keep them very concise. Use simple, direct, or concise statement-based questions that test understanding with confusing options without using bloated text.
     3. SPECIAL FOCUS:
        - If 'Rajasthan Current Affairs' or 'Rajasthan GK': Emphasize regional history, geography, sports, cabinet changes, schemes, and bills.
        - If 'National Current Affairs' or others: Emphasize awards, schemes, indexes, and key syllabus elements.
     4. TEACHER STYLE: Use a "Guruji" tone for insights—supportive yet strict about accuracy.
+    5. STRICT BREVITY & CONCISENESS (KAM SE KAM SHABD): Write the questions using the absolute minimum words possible. They must be extremely short, direct, and straightforward. Avoid long, complicated, or wordy prompts.
     
     Each JSON object must follow this structure exactly:
-    - 'question': Tricky question.
-    - 'options': A, B, C, D option values.
+    - 'question': Extremely short, concise, and direct question (minimum words / kam se kam shabdon mein).
+    - 'options': A, B, C, D option values (keep these concise too).
     - 'correctAnswer': String "A" | "B" | "C" | "D".
     - 'explanation': Clear factual explanation.
     - 'teacherInsight': "Guruji" style insight in Hinglish (Hindi+English Mixed) or the selected language with logic/mnemonics.

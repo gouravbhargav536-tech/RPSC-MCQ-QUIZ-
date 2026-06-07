@@ -981,7 +981,7 @@ export default function App() {
                                 </motion.span>
                               )}
                             </AnimatePresence>
-                            <h2 className="text-xl md:text-3xl font-display mt-4 md:mt-6 leading-snug md:leading-tight text-main italic">
+                            <h2 className="text-base md:text-lg font-semibold tracking-tight mt-3 md:mt-4 leading-relaxed text-slate-800">
                                {questions[currentIndex]?.question}
                             </h2>
                           </div>
