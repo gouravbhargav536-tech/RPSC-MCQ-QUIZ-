@@ -4,23 +4,58 @@ import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
 import { getDatabase, ref, get } from 'firebase/database';
 import firebaseConfig from '../../firebase-applet-config.json';
 
-// Support dynamic local storage configurations
+// Support dynamic local storage configurations with robust sanitization
+const getSanitizedLocalStorage = (key: string): string | null => {
+  if (typeof window === 'undefined') return null;
+  const val = localStorage.getItem(key);
+  if (!val) return null;
+  const trimmed = val.trim();
+  if (
+    trimmed === '' || 
+    trimmed === 'undefined' || 
+    trimmed === 'null' || 
+    trimmed === '[object Object]' ||
+    trimmed.includes('<YOUR') ||
+    trimmed.includes('YOUR_') ||
+    trimmed.includes('<') ||
+    trimmed.includes('>')
+  ) {
+    return null;
+  }
+  return trimmed;
+};
+
 export const getActiveFirebaseConfig = () => {
-  const localProject = typeof window !== 'undefined' ? localStorage.getItem('firebase_project_id') : null;
-  const localApiKey = typeof window !== 'undefined' ? localStorage.getItem('firebase_api_key') : null;
-  const localAppId = typeof window !== 'undefined' ? localStorage.getItem('firebase_app_id') : null;
-  const localRtdbUrl = typeof window !== 'undefined' ? localStorage.getItem('firebase_rtdb_url') : null;
+  const localProject = getSanitizedLocalStorage('firebase_project_id');
+  const localApiKey = getSanitizedLocalStorage('firebase_api_key');
+  const localAppId = getSanitizedLocalStorage('firebase_app_id');
+  const localRtdbUrl = getSanitizedLocalStorage('firebase_rtdb_url');
+
+  const projectId = localProject || firebaseConfig.projectId || 'rpscquizapp';
+  
+  let databaseURL = localRtdbUrl || (firebaseConfig as any).databaseURL;
+  if (
+    !databaseURL || 
+    !databaseURL.startsWith('https://') || 
+    databaseURL.includes('<') || 
+    databaseURL.includes('>') || 
+    databaseURL.includes('YOUR_') ||
+    databaseURL === 'undefined' ||
+    databaseURL === 'null'
+  ) {
+    databaseURL = `https://${projectId}-default-rtdb.firebaseio.com`;
+  }
 
   return {
-    projectId: localProject || firebaseConfig.projectId || 'rpscquizapp',
+    projectId,
     appId: localAppId || firebaseConfig.appId,
     apiKey: localApiKey || firebaseConfig.apiKey,
-    authDomain: `${localProject || firebaseConfig.projectId || 'rpscquizapp'}.firebaseapp.com`,
+    authDomain: `${projectId}.firebaseapp.com`,
     firestoreDatabaseId: firebaseConfig.firestoreDatabaseId || '(default)',
-    storageBucket: `${localProject || firebaseConfig.projectId || 'rpscquizapp'}.firebasestorage.app`,
+    storageBucket: `${projectId}.firebasestorage.app`,
     messagingSenderId: firebaseConfig.messagingSenderId,
     measurementId: firebaseConfig.measurementId,
-    databaseURL: localRtdbUrl || (firebaseConfig as any).databaseURL || `https://${localProject || firebaseConfig.projectId || 'rpscquizapp'}-default-rtdb.firebaseio.com`
+    databaseURL
   };
 };
 
@@ -44,7 +79,26 @@ export const hasFirebaseVars = !!(activeConfig && activeConfig.projectId && acti
 // Ensure the db is initialized with our custom enterprise firestore database instance ID
 export const db = app ? getFirestore(app, activeConfig.firestoreDatabaseId) : null;
 export const auth = app ? getAuth(app) : null;
-export const rtdb = app ? getDatabase(app, activeConfig.databaseURL) : null;
+
+let rtdbInstance = null;
+if (app) {
+  try {
+    const rtdbUrl = activeConfig.databaseURL;
+    if (rtdbUrl && rtdbUrl.startsWith('https://')) {
+      rtdbInstance = getDatabase(app, rtdbUrl);
+    } else {
+      rtdbInstance = getDatabase(app);
+    }
+  } catch (error) {
+    console.error("Firebase Realtime Database failed to initialize safely:", error);
+    try {
+      rtdbInstance = getDatabase(app);
+    } catch (_) {
+      rtdbInstance = null;
+    }
+  }
+}
+export const rtdb = rtdbInstance;
 
 export enum OperationType {
   CREATE = 'create',
