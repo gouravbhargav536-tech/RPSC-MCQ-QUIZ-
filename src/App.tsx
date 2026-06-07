@@ -45,88 +45,12 @@ import IntroScreen from './components/IntroScreen';
 import AuthScreen from './components/AuthScreen';
 import RiverMap from './components/RiverMap';
 import { useFeedback } from './hooks/useFeedback';
-import { testFirebaseConnection, testRtdbConnection, hasFirebaseVars } from './services/firebase';
-import { firebaseService } from './services/firebaseService';
-import { Play, Pause, Bookmark, Terminal, AlertCircle, ShieldAlert, Settings as SettingsIcon, Database } from 'lucide-react';
-import axios from 'axios';
 
 export default function App() {
   const [screen, setScreen] = useState<'LANDING' | 'INTRO' | 'AUTH' | 'HOME' | 'SETUP' | 'RULES' | 'QUIZ' | 'RESULTS'>('LANDING');
   const [loading, setLoading] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [theme, setTheme] = useState<ThemeType>('geometric');
-
-  // Custom API key states
-  const [useCustomApiKey, setUseCustomApiKey] = useState<boolean>(() => {
-    return localStorage.getItem('use_custom_api_key') === 'true';
-  });
-  const [customApiKey, setCustomApiKey] = useState<string>(() => {
-    return localStorage.getItem('custom_api_key') || '';
-  });
-  const [firebaseProjectId, setFirebaseProjectId] = useState<string>(() => {
-    return localStorage.getItem('firebase_project_id') || 'rpscquizapp';
-  });
-  const [firebaseApiKey, setFirebaseApiKey] = useState<string>(() => {
-    return localStorage.getItem('firebase_api_key') || '';
-  });
-  const [firebaseAppId, setFirebaseAppId] = useState<string>(() => {
-    return localStorage.getItem('firebase_app_id') || '';
-  });
-  const [firebaseRtdbUrl, setFirebaseRtdbUrl] = useState<string>(() => {
-    return localStorage.getItem('firebase_rtdb_url') || 'https://rpscquizapp-default-rtdb.firebaseio.com';
-  });
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [testingApiKey, setTestingApiKey] = useState(false);
-  const [testResult, setTestResult] = useState<{ status: 'valid' | 'invalid' | null; error?: string }>({ status: null });
-  const [quizError, setQuizError] = useState<string | null>(null);
-
-  // Dynamically save state to localStorage when values are modified
-  useEffect(() => {
-    localStorage.setItem('use_custom_api_key', useCustomApiKey ? 'true' : 'false');
-  }, [useCustomApiKey]);
-
-  useEffect(() => {
-    localStorage.setItem('custom_api_key', customApiKey);
-  }, [customApiKey]);
-
-  useEffect(() => {
-    localStorage.setItem('firebase_project_id', firebaseProjectId);
-  }, [firebaseProjectId]);
-
-  useEffect(() => {
-    localStorage.setItem('firebase_api_key', firebaseApiKey);
-  }, [firebaseApiKey]);
-
-  useEffect(() => {
-    localStorage.setItem('firebase_app_id', firebaseAppId);
-  }, [firebaseAppId]);
-
-  useEffect(() => {
-    localStorage.setItem('firebase_rtdb_url', firebaseRtdbUrl);
-  }, [firebaseRtdbUrl]);
-
-  // Method to check validity of entered custom API key
-  const handleTestApiKey = async () => {
-    if (!customApiKey.trim()) {
-      setTestResult({ status: 'invalid', error: 'API key field cannot be empty.' });
-      return;
-    }
-    setTestingApiKey(true);
-    setTestResult({ status: null });
-    try {
-      const resp = await axios.post('/api/test-api-key', { apiKey: customApiKey.trim() });
-      if (resp.data.status === 'valid') {
-        setTestResult({ status: 'valid' });
-      } else {
-        setTestResult({ status: 'invalid', error: resp.data.error || 'The API key provided is invalid.' });
-      }
-    } catch (err: any) {
-      console.error(err);
-      setTestResult({ status: 'invalid', error: err.response?.data?.error || err.message || 'Verification request failed.' });
-    } finally {
-      setTestingApiKey(false);
-    }
-  };
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [rulesAccepted, setRulesAccepted] = useState(false);
   const [hasSavedQuiz, setHasSavedQuiz] = useState(false);
@@ -151,59 +75,6 @@ export default function App() {
   const [quizTimer, setQuizTimer] = useState(0);
   const [isAnswered, setIsAnswered] = useState(false);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
-
-   // Diagnostics and premium examination layout states
-  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
-  const [isPaused, setIsPaused] = useState(false);
-  const [markedForReview, setMarkedForReview] = useState<Record<number, boolean>>({});
-  const [bookmarks, setBookmarks] = useState<Record<number, boolean>>({});
-  const [firebaseStatus, setFirebaseStatus] = useState<'Checking' | 'Syncing' | 'Connected' | 'Not Configured' | 'Failed'>('Checking');
-  const [firebaseError, setFirebaseError] = useState<string | null>(null);
-  const [rtdbStatus, setRtdbStatus] = useState<'Checking' | 'Syncing' | 'Connected' | 'Not Configured' | 'Failed'>('Checking');
-  const [rtdbError, setRtdbError] = useState<string | null>(null);
-  const [checkingConnections, setCheckingConnections] = useState(false);
-
-  const checkFirebaseConnections = async () => {
-    setCheckingConnections(true);
-    setFirebaseStatus('Syncing');
-    setRtdbStatus('Syncing');
-    
-    // Check Firestore
-    try {
-      const res = await testFirebaseConnection();
-      if (res.active) {
-        setFirebaseStatus('Connected');
-        setFirebaseError(null);
-      } else {
-        setFirebaseStatus(hasFirebaseVars ? 'Failed' : 'Not Configured');
-        setFirebaseError(res.error || "Firebase Firestore database connection is unreachable.");
-      }
-    } catch (err: any) {
-      setFirebaseStatus('Failed');
-      setFirebaseError(err?.message || String(err));
-    }
-
-    // Check Realtime Database
-    try {
-      const resVal = await testRtdbConnection();
-      if (resVal.active) {
-        setRtdbStatus('Connected');
-        setRtdbError(null);
-      } else {
-        setRtdbStatus(hasFirebaseVars ? 'Failed' : 'Not Configured');
-        setRtdbError(resVal.error || "Firebase Realtime Database is unreachable.");
-      }
-    } catch (err: any) {
-      setRtdbStatus('Failed');
-      setRtdbError(err?.message || String(err));
-    }
-    setCheckingConnections(false);
-  };
-
-  // Trigger Firestore and RTDB ping check on boot
-  useEffect(() => {
-    checkFirebaseConnections();
-  }, []);
 
   // Gamification state
   const [streak, setStreak] = useState(0);
@@ -236,56 +107,11 @@ export default function App() {
   useEffect(() => {
     if (user) {
       localStorage.setItem('rpsc_user', JSON.stringify(user));
-      
-      // Update local storage gamification stats if user profile fields are present
-      const u = user as any;
-      if (u.uid && u.uid !== 'local_temp_uid') {
-        const stats = {
-          streak: u.streak || 0,
-          badges: u.badges || [],
-          lastQuizDate: u.lastQuizDate || "",
-          lastDailyDate: u.lastDailyDate || "",
-          quizCount: u.quizCount || 0
-        };
-        localStorage.setItem('rpsc-gamification', JSON.stringify(stats));
-        setStreak(stats.streak);
-        setBadges(stats.badges);
-        if (stats.lastDailyDate === new Date().toDateString()) {
-          setDailyDone(true);
-        }
-      }
     } else {
       localStorage.removeItem('rpsc_user');
       localStorage.removeItem('rpsc_current_quiz');
     }
   }, [user]);
-
-  // Synchronize Firestore bookmarks with active quiz question checklist
-  useEffect(() => {
-    const restoreBookmarks = async () => {
-      if (user && (user as any).uid && questions.length > 0) {
-        try {
-          const dbBookmarks = await firebaseService.getBookmarks((user as any).uid);
-          const activeBookmarks: Record<number, boolean> = {};
-          questions.forEach((q, idx) => {
-            const qId = q.id || `q-${idx}`;
-            const sanitizedId = qId.replace(/[^a-zA-Z0-9_\-]/g, '_');
-            if (dbBookmarks[sanitizedId] !== undefined) {
-              activeBookmarks[idx] = true;
-            } else {
-              // fallback match on content
-              const match = Object.values(dbBookmarks).some(b => b.question === q.question);
-              if (match) activeBookmarks[idx] = true;
-            }
-          });
-          setBookmarks(activeBookmarks);
-        } catch (err) {
-          console.error("Failed to restore bookmarks from Firestore:", err);
-        }
-      }
-    };
-    restoreBookmarks();
-  }, [user, questions]);
 
   // Save quiz progress
   useEffect(() => {
@@ -349,17 +175,9 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (screen === 'QUIZ' && !loading && !isPaused) {
+    if (screen === 'QUIZ' && !loading) {
       timerRef.current = setInterval(() => {
-        setQuizTimer(prev => {
-          if (prev >= 1199) {
-            // Countdown ended. Auto-submit exam.
-            setScreen('RESULTS');
-            feedback('success');
-            return 1200;
-          }
-          return prev + 1;
-        });
+        setQuizTimer(prev => prev + 1);
       }, 1000);
     } else {
       if (timerRef.current) clearInterval(timerRef.current);
@@ -367,54 +185,14 @@ export default function App() {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [screen, loading, isPaused]);
+  }, [screen, loading]);
 
-  const getCategoryIdentifier = (sub: string): string => {
-    switch (sub) {
-      case 'Rajasthan Current Affairs': return 'rajasthan_current_affairs';
-      case 'National Current Affairs': return 'national_current_affairs';
-      case 'Rajasthan GK': return 'rajasthan_gk';
-      case 'Indian GK': return 'indian_gk';
-      case 'Mathematics': return 'mathematics';
-      case 'Science': return 'science';
-      case 'Reasoning': return 'reasoning';
-      case 'Hindi': return 'hindi';
-      case 'English': return 'english';
-      default: return sub.toLowerCase().replace(/\s+/g, '_');
-    }
-  };
-
-  const startSetup = async (subject: Subject) => {
+  const startSetup = (subject: Subject) => {
     feedback('click');
-    setLoading(true);
-    setQuizError(null);
     setConfig(prev => ({ ...prev, subject }));
     setIsReviewMode(false);
     setIsDailyChallenge(false);
-    setScreen('QUIZ');
-    
-    const categoryIdent = getCategoryIdentifier(subject);
-    try {
-      console.log(`[RTDB Fetch] Querying quizzes under category "${categoryIdent}"`);
-      const rtdbQuestions = await firebaseService.fetchQuizzesByCategory(categoryIdent);
-      
-      if (rtdbQuestions && rtdbQuestions.length > 0) {
-        setQuestions(rtdbQuestions);
-        setCurrentIndex(0);
-        setQuizTimer(0);
-        setIsAnswered(false);
-      } else {
-        throw new Error(
-          `No quizzes found in Firebase Realtime Database at the path '/quizzes' for category identifier "${categoryIdent}". Please ensure some objects with 'category' matching "${categoryIdent}" exist at that path.`
-        );
-      }
-    } catch (error: any) {
-      console.error("RTDB Quiz loading failed:", error);
-      setQuizError(error?.message || "Failed to fetch quizzes from Realtime Database.");
-      setScreen('SETUP');
-    } finally {
-      setLoading(false);
-    }
+    setScreen('SETUP');
   };
 
   const startMistakeReview = () => {
@@ -441,7 +219,7 @@ export default function App() {
     }
   }, []);
 
-  const updateGamification = async (newScore: number, total: number) => {
+  const updateGamification = (newScore: number, total: number) => {
     const statsStr = localStorage.getItem('rpsc-gamification');
     let stats = statsStr ? JSON.parse(statsStr) : { streak: 0, badges: [], lastDailyDate: '', quizCount: 0 };
     
@@ -474,34 +252,6 @@ export default function App() {
     localStorage.setItem('rpsc-gamification', JSON.stringify(stats));
     setStreak(stats.streak);
     setBadges(stats.badges);
-
-    // Sync gamified profile details and quiz history directly to Firestore
-    if (user && (user as any).uid) {
-      try {
-        await firebaseService.saveQuizAttempt((user as any).uid, config, newScore, quizTimer);
-        
-        await mockAuth.updateProfile((user as any).uid, {
-          streak: stats.streak,
-          badges: stats.badges,
-          lastQuizDate: stats.lastQuizDate || "",
-          lastDailyDate: stats.lastDailyDate || "",
-          quizCount: stats.quizCount,
-        });
-
-        const updatedProfile = {
-          ...user,
-          streak: stats.streak,
-          badges: stats.badges,
-          lastQuizDate: stats.lastQuizDate || "",
-          lastDailyDate: stats.lastDailyDate || "",
-          quizCount: stats.quizCount,
-        };
-        setUser(updatedProfile);
-        localStorage.setItem('rpsc_user', JSON.stringify(updatedProfile));
-      } catch (err) {
-        console.error("Failed to sync score progression to Firestore db:", err);
-      }
-    }
   };
 
   useEffect(() => {
@@ -531,7 +281,6 @@ export default function App() {
   const confirmStartQuiz = async () => {
     feedback('click');
     setLoading(true);
-    setQuizError(null);
     setScreen('QUIZ');
     try {
       const generatedQuestions = await generateQuizQuestions(config);
@@ -540,9 +289,8 @@ export default function App() {
       setCurrentIndex(0);
       setQuizTimer(0);
       setIsAnswered(false);
-    } catch (error: any) {
-      console.error("Quiz generation failed:", error);
-      setQuizError(error?.message || "Error generating quiz. Please try again.");
+    } catch (error) {
+      alert("Error generating quiz. Please try again.");
       setScreen('SETUP');
     } finally {
       setLoading(false);
@@ -633,173 +381,6 @@ export default function App() {
 
   return (
     <div className={`h-screen bg-page flex flex-col font-sans text-main overflow-hidden theme-${theme} relative`} data-theme={theme}>
-      {/* 🛠️ COLLAPSIBLE SYSTEM DIAGNOSTIC PANEL */}
-      <AnimatePresence>
-        {diagnosticsOpen && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            className="w-full bg-slate-900 text-slate-200 border-b border-slate-700 font-mono text-xs overflow-hidden relative z-50 shrink-0"
-          >
-            <div className="max-w-7xl mx-auto p-4 md:p-6 grid grid-cols-1 md:grid-cols-12 gap-6">
-              {/* Variable Health Audit */}
-              <div className="md:col-span-4 space-y-4 border-r border-slate-800 pr-0 md:pr-6">
-                <div className="flex items-center gap-2 text-teal-400 font-bold border-b border-slate-800 pb-2">
-                  <Terminal size={14} /> ENVIRONMENTAL AUDIT
-                </div>
-                
-                <div className="space-y-3 font-semibold">
-                  {/* Gemini API Key */}
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-400">VITE_GEMINI_API_KEY:</span>
-                    {typeof (import.meta as any).env?.VITE_GEMINI_API_KEY === 'string' && (import.meta as any).env?.VITE_GEMINI_API_KEY.length > 0 ? (
-                      <span className="px-2 py-0.5 bg-green-500/10 text-green-400 border border-green-500/30 rounded text-[10px] font-bold">
-                        RESOLVED (Active)
-                      </span>
-                    ) : (
-                      <span className="px-2 py-0.5 bg-red-500/10 text-red-400 border border-red-500/30 rounded text-[10px] font-bold">
-                        NOT CONFIGURED
-                      </span>
-                    )}
-                  </div>
-
-                  {/* OpenRouter API Key */}
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-400">VITE_OPENROUTER_API_KEY:</span>
-                    {typeof (import.meta as any).env?.VITE_OPENROUTER_API_KEY === 'string' && (import.meta as any).env?.VITE_OPENROUTER_API_KEY.length > 0 ? (
-                      <span className="px-2 py-0.5 bg-green-500/10 text-green-400 border border-green-500/30 rounded text-[10px] font-bold">
-                        RESOLVED (Active)
-                      </span>
-                    ) : (
-                      <span className="px-2 py-0.5 bg-red-400/10 text-red-400 border border-red-400/30 rounded text-[10px] font-bold">
-                        NOT CONFIGURED
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Firebase Firestore Status */}
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-400">Firestore Connection:</span>
-                    <span className={`px-2 py-0.5 border rounded text-[10px] font-bold ${
-                      firebaseStatus === 'Connected' 
-                        ? 'bg-green-500/10 text-green-400 border-green-500/30'
-                        : firebaseStatus === 'Syncing'
-                          ? 'bg-amber-500/10 text-amber-400 border-amber-500/30 animate-pulse'
-                          : firebaseStatus === 'Not Configured'
-                            ? 'bg-slate-500/10 text-slate-400 border-slate-500/30'
-                            : 'bg-red-500/10 text-red-400 border-red-500/30'
-                    }`}>
-                      {firebaseStatus === 'Connected' && 'CONNECTED (Auto-Polling)'}
-                      {firebaseStatus === 'Syncing' && 'SYNCING PING...'}
-                      {firebaseStatus === 'Not Configured' && 'LOCAL FALLBACK'}
-                      {firebaseStatus === 'Failed' && 'FAILED / OFFLINE'}
-                      {firebaseStatus === 'Checking' && 'CHECKING...'}
-                    </span>
-                  </div>
-
-                  {/* Firebase Realtime Database Status */}
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-400">Realtime DB Connection:</span>
-                    <span className={`px-2 py-0.5 border rounded text-[10px] font-bold ${
-                      rtdbStatus === 'Connected' 
-                        ? 'bg-green-500/10 text-green-400 border-green-500/30'
-                        : rtdbStatus === 'Syncing'
-                          ? 'bg-amber-500/10 text-amber-400 border-amber-500/30 animate-pulse'
-                          : rtdbStatus === 'Not Configured'
-                            ? 'bg-slate-500/10 text-slate-400 border-slate-500/30'
-                            : 'bg-red-500/10 text-red-400 border-red-500/30'
-                    }`}>
-                      {rtdbStatus === 'Connected' && 'CONNECTED (RTDB_LIVE)'}
-                      {rtdbStatus === 'Syncing' && 'PINGING RTDB...'}
-                      {rtdbStatus === 'Not Configured' && 'LOCAL FALLBACK'}
-                      {rtdbStatus === 'Failed' && 'FAILED / TIMEOUT'}
-                      {rtdbStatus === 'Checking' && 'CHECKING...'}
-                    </span>
-                  </div>
-
-                  {/* Manual trigger for checking diagnostics */}
-                  <div className="pt-2">
-                    <button
-                      onClick={() => {
-                        feedback('click');
-                        checkFirebaseConnections();
-                      }}
-                      disabled={checkingConnections}
-                      className="w-full text-center py-2 bg-slate-800 text-teal-400 border border-slate-700 text-[10px] font-bold uppercase rounded hover:bg-slate-750 active:scale-95 transition-all cursor-pointer flex items-center justify-center gap-1.5"
-                    >
-                      {checkingConnections ? (
-                        <>
-                          <Loader2 size={12} className="animate-spin" />
-                          <span>Testing Connections...</span>
-                        </>
-                      ) : (
-                        <span>Run Connection Tests</span>
-                      )}
-                    </button>
-                  </div>
-                </div>
-
-                <div className="text-[10px] text-slate-500 p-2.5 bg-slate-950/50 rounded border border-slate-800">
-                  <span className="font-bold text-amber-500 block mb-1">💡 DEV TIP:</span>
-                  To use real Firebase, declare <span className="text-slate-300">VITE_FIREBASE_API_KEY</span> and <span className="text-slate-300">VITE_FIREBASE_PROJECT_ID</span> in your secrets.
-                </div>
-              </div>
-
-              {/* Netlify Variable Diagnostic Audit Details */}
-              <div className="md:col-span-8 space-y-4">
-                <div className="flex items-center gap-2 text-teal-400 font-bold border-b border-slate-800 pb-2">
-                  <AlertCircle size={14} /> SYSTEM DIAGNOSTIC LOGS & REMEDIATION ARCHITECTURE
-                </div>
-                
-                <div className="text-xs space-y-3 leading-relaxed text-slate-300">
-                  <div>
-                    <span className="text-amber-400 font-bold">1. Diagnosing Netlify Env 'NOT CONFIGURED' & 404s:</span>
-                    <p className="text-[11px] text-slate-400 mt-1">
-                      If variables exist in Netlify but show <span className="text-slate-200">NOT CONFIGURED</span> in the client, verify that <span className="text-amber-300 font-bold">"All scopes" (Builds and Runtime)</span> are checked on the Netlify Environment Dashboard. If only "Builds" is active, Vite's production bundler lacks access during runtime bundle execution, stripping keys from the app!
-                    </p>
-                  </div>
-
-                  <div>
-                    <span className="text-amber-400 font-bold">2. Restoring "@firebase/firestore" WebChannel RPC Stream Error:</span>
-                    <p className="text-[11px] text-slate-400 mt-1">
-                      On sandboxed networks, gRPC streams error on RPC transport. We have patched our client initialization inside <span className="text-slate-200">src/services/firebase.ts</span> using the strict constraint <span className="text-teal-400 font-semibold italic">experimentalAutoDetectLongPolling: true</span>, forcing fallback transmission to prevent stream dropouts and secure flawless quiz syncing.
-                    </p>
-                  </div>
-
-                  {firebaseError && (
-                    <div className="bg-red-950/40 border border-red-500/30 text-red-100 p-3 rounded-lg text-[11px] leading-relaxed">
-                      <span className="font-bold text-red-400 block mb-1">⚠️ Firestore Connection Error:</span> 
-                      <p className="font-mono text-[10px] bg-red-950/20 p-1.5 rounded">{firebaseError}</p>
-                    </div>
-                  )}
-
-                  {rtdbError && (
-                    <div className="bg-red-950/40 border border-red-500/30 text-red-100 p-3 rounded-lg text-[11px] leading-relaxed">
-                      <span className="font-bold text-red-400 block mb-1">⚠️ Realtime DB Connection Error:</span> 
-                      <p className="font-mono text-[10px] bg-red-950/20 p-1.5 rounded">{rtdbError}</p>
-                      <p className="text-[10px] text-slate-400 mt-1.5 italic">
-                        Verify that your Realtime Database matches your active Project ID, and your security rules allowed reading the `/quizzes` path.
-                      </p>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-            
-            <div className="bg-slate-950/80 px-4 py-2 border-t border-slate-800 flex justify-between items-center text-[10px] text-slate-500">
-              <span>ACTIVE SYSTEM AUDITOR • OFFLINE PORTAL MATCHED</span>
-              <button 
-                onClick={() => setDiagnosticsOpen(false)}
-                className="text-teal-400 hover:text-teal-300 uppercase tracking-wider font-bold bg-transparent border-0 cursor-pointer"
-              >
-                [ Close Panel ]
-              </button>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
       {/* Background Accents (Geometric Balance Mode) */}
       {theme === 'geometric' && (
         <div className="fixed inset-0 pointer-events-none overflow-hidden">
@@ -896,19 +477,6 @@ export default function App() {
                   )}
                   
                   <div className="flex items-center gap-1 md:gap-2">
-                    {/* diagnostics toggle */}
-                    <button
-                      onClick={() => setDiagnosticsOpen(!diagnosticsOpen)}
-                      className={`px-3 py-1.5 md:px-4 md:py-2 rounded-full border text-[10px] font-bold uppercase transition-all tracking-wider flex items-center gap-1.5 cursor-pointer shadow-sm ${
-                        diagnosticsOpen 
-                          ? 'bg-amber-600 border-amber-500 text-white' 
-                          : 'bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-800'
-                      }`}
-                    >
-                      <Terminal size={12} />
-                      <span className="hidden xs:inline">System Audit</span>
-                    </button>
-
                     <div className="hidden sm:flex items-center gap-1 px-2 md:px-3 py-1 bg-orange-500/10 border border-orange-500/10 rounded-full">
                       <span className="text-orange-500 animate-pulse text-[10px]">🔥</span>
                       <span className="text-[10px] md:text-xs font-bold text-orange-500">{streak}</span>
@@ -944,25 +512,6 @@ export default function App() {
                       )}
                       
                       <div className={`absolute inset-0 opacity-0 group-hover:opacity-10 transition-opacity bg-white`}></div>
-                    </button>
-
-                    <button 
-                      onClick={() => setSettingsOpen(true)}
-                      title="Settings"
-                      className={`flex items-center gap-2 px-3 py-2 md:px-5 md:py-2.5 rounded-full transition-all duration-300 shadow-lg border group active:scale-95 ${
-                        theme === 'rajasthan' 
-                          ? 'bg-rose-900/40 border-amber-500/50 text-amber-100 hover:bg-rose-900/60' 
-                          : 'bg-white border-slate-200 text-slate-600 hover:border-primary/20 hover:bg-slate-50'
-                      }`}
-                    >
-                      <SettingsIcon size={18} className="transition-transform group-hover:rotate-45" />
-                      <span className={`text-[10px] md:text-sm font-bold transition-all whitespace-nowrap ${
-                        theme === 'rajasthan' 
-                          ? 'font-serif italic text-amber-200 tracking-wider' 
-                          : 'font-display uppercase tracking-widest text-slate-700'
-                      }`}>
-                        Settings
-                      </span>
                     </button>
 
                   <div className="hidden xs:block h-6 md:h-8 w-px bg-slate-200 mx-1 md:mx-2"></div>
@@ -1247,35 +796,6 @@ export default function App() {
                            <div className="text-center md:text-left">
                              <h2 className="text-2xl md:text-3xl font-display text-main">{config.subject}</h2>
                              <p className="text-xs md:text-sm text-slate-500 italic">Configuration & AI Tuning</p>
-                             {quizError && (
-                               <div className="mt-4 p-4 bg-red-50 border-l-4 border-red-500 rounded-lg text-red-750 flex flex-col gap-2 shadow-sm text-left">
-                                 <div className="flex items-center gap-2 font-bold text-sm">
-                                   <AlertCircle size={16} className="text-red-500" />
-                                   <span>API Generation Error</span>
-                                 </div>
-                                 <p className="text-xs text-red-650 font-medium leading-relaxed normal-case font-sans">
-                                   {quizError}
-                                 </p>
-                                 <div className="mt-1.5 flex gap-3 text-[10px] font-bold uppercase tracking-widest font-sans">
-                                   <button
-                                     onClick={() => {
-                                       setSettingsOpen(true);
-                                       setQuizError(null);
-                                     }}
-                                     className="text-red-700 hover:text-red-900 underline flex items-center gap-1 cursor-pointer"
-                                   >
-                                     Configure Custom API Key
-                                   </button>
-                                   <span className="text-slate-300">|</span>
-                                   <button
-                                     onClick={() => setQuizError(null)}
-                                     className="text-slate-500 hover:text-slate-800 cursor-pointer"
-                                   >
-                                     Dismiss
-                                   </button>
-                                 </div>
-                                </div>
-                              )}
                            </div>
                         </div>
 
@@ -1434,7 +954,7 @@ export default function App() {
                       key="quiz-center"
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
-                      className="max-w-3xl mx-auto w-full flex flex-col justify-between min-h-full pb-24"
+                      className="max-w-2xl mx-auto w-full flex flex-col justify-center min-h-full"
                     >
                       {loading ? (
                         <div className="flex flex-col items-center py-20 text-center">
@@ -1442,249 +962,173 @@ export default function App() {
                           <h3 className="text-2xl font-display text-main italic">Assembling MCQs...</h3>
                           <p className="text-slate-500 text-sm mt-2 uppercase tracking-widest font-bold">Matching Exam Patterns</p>
                         </div>
-                      ) : isPaused ? (
-                        /* SECURE MODE PAUSED OVERLAY */
-                        <motion.div 
-                          initial={{ opacity: 0, scale: 0.98 }}
-                          animate={{ opacity: 1, scale: 1 }}
-                          className="flex flex-col items-center justify-center text-center py-24 px-6 bg-slate-900/10 backdrop-blur-md rounded-3xl border border-slate-200 shadow-2xl my-auto"
-                        >
-                          <ShieldAlert size={64} className="text-amber-500 mb-6 animate-bounce" />
-                          <h3 className="text-2xl font-bold text-slate-800 uppercase tracking-tight font-display">EXAMINATION PAUSED</h3>
-                          <p className="text-slate-500 text-sm mt-3 max-w-md leading-relaxed">
-                            Secure Mode Active: All question data and core option coordinates are locked and concealed to prevent clock tampering.
-                          </p>
-                          <button
-                            onClick={() => {
-                              feedback('success');
-                              setIsPaused(false);
-                            }}
-                            className="mt-8 px-8 py-3.5 bg-primary text-white font-bold rounded-xl uppercase text-xs tracking-widest hover:brightness-110 active:scale-95 transition-all shadow-lg"
-                          >
-                            Resume Examination
-                          </button>
-                        </motion.div>
                       ) : (
                         <>
-                          {/* ⏱️ TIMED EXAMINATION HEADER */}
-                          <div className={`p-4 md:p-5 mb-6 border ${
-                            theme === 'rajasthan' 
-                              ? 'bg-amber-50/50 border-amber-300/40 rounded-3xl shadow-sm' 
-                              : 'bg-white/80 backdrop-blur-md border-slate-200/60 rounded-2xl shadow-sm'
-                          }`}>
-                            <div className="flex items-center justify-between">
-                              {/* Left: Set detail and countdown timer */}
-                              <div className="flex items-center gap-3">
-                                <span className={`px-3 py-1 font-mono text-[11px] font-extrabold tracking-widest ${
-                                  theme === 'rajasthan' ? 'bg-amber-600 text-white' : 'bg-slate-900 text-teal-400'
-                                } rounded`}>
-                                  SET - 01
-                                </span>
-                                <div className="h-4 w-px bg-slate-300"></div>
-                                <div className="flex items-center gap-1.5">
-                                  <span className="text-sm md:text-base font-mono font-bold text-slate-700 animate-pulse tracking-wide whitespace-nowrap">
-                                    Time Left: {Math.floor(Math.max(0, 1200 - quizTimer) / 60)}:{(Math.max(0, 1200 - quizTimer) % 60).toString().padStart(2, '0')}
-                                  </span>
-                                </div>
-                              </div>
-                              
-                              {/* Right: Functional Pause button */}
-                              <button
-                                onClick={() => {
-                                  feedback('click');
-                                  setIsPaused(true);
-                                }}
-                                title="Pause Exam"
-                                className="w-10 h-10 rounded-full flex items-center justify-center bg-slate-100 hover:bg-slate-200 text-slate-700 transition-all cursor-pointer active:scale-90 shadow-sm border border-slate-200/50"
-                              >
-                                <Pause size={16} />
-                              </button>
-                            </div>
-
-                            {/* Question Type and Marking Scheme Sub-header */}
-                            <div className="flex flex-wrap items-center justify-between border-t border-slate-200/50 mt-4 pt-3 text-xs text-slate-500 font-semibold md:flex">
-                              <span className="uppercase tracking-widest text-[9px] text-slate-400">
-                                Question Type: Single Choice Mcq
-                              </span>
-                              
-                              <div className="flex items-center gap-2">
-                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-green-50 text-green-600 border border-green-200/30 rounded font-bold text-[10px]">
-                                  Correct: +1.00
-                                </span>
-                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-red-50 text-red-600 border border-red-200/30 rounded font-bold text-[10px]">
-                                  Incorrect: -0.25
-                                </span>
-                              </div>
-                            </div>
+                          <div className="mb-8 relative">
+                            <span className="px-3 py-1 bg-primary/10 text-primary text-[10px] font-bold rounded-sm uppercase tracking-widest">
+                               {isReviewMode ? 'Mistake Notebook' : `${config.subject} • ${config.difficulty}`}
+                            </span>
+                            
+                            <AnimatePresence>
+                              {consecutiveCorrect >= 3 && (
+                                <motion.span 
+                                  initial={{ opacity: 0, x: -10 }}
+                                  animate={{ opacity: 1, x: 0 }}
+                                  exit={{ opacity: 0 }}
+                                  className="ml-4 text-[10px] font-bold text-accent uppercase tracking-widest flex items-center gap-1 inline-flex"
+                                >
+                                  <Zap size={10} /> AI: Leveling Up Challenge
+                                </motion.span>
+                              )}
+                            </AnimatePresence>
+                            <h2 className="text-xl md:text-3xl font-display mt-4 md:mt-6 leading-snug md:leading-tight text-main italic">
+                               {questions[currentIndex]?.question}
+                            </h2>
                           </div>
-                          {/* 📖 QUESTION CONTAINER LAYOUT */}
-                          <div className={`p-6 md:p-8 border mb-6 ${
-                            theme === 'rajasthan' 
-                              ? 'bg-white rounded-3xl border-amber-500/40 shadow-sm' 
-                              : 'bg-white border-slate-200/60 rounded-2xl shadow-sm'
-                          }`}>
-                            <div className="flex items-center justify-between border-b border-slate-100 pb-4 mb-6">
-                              {/* Left index */}
-                              <span className="text-[11px] font-bold uppercase tracking-widest text-slate-400">
-                                Question No.: <span className="text-slate-800 font-mono text-xs font-semibold">{currentIndex + 1}</span> of {questions.length}
-                              </span>
 
-                              {/* Right: SAVE bookmark button */}
-                              <button
-                                onClick={async () => {
-                                  feedback('royal');
-                                  const isCurrentlyBookmarked = bookmarks[currentIndex];
-                                  setBookmarks(prev => ({ ...prev, [currentIndex]: !isCurrentlyBookmarked }));
-                                  
-                                  if (user && (user as any).uid) {
-                                    const q = questions[currentIndex];
-                                    const qId = q.id || `q-${currentIndex}`;
-                                    try {
-                                      if (!isCurrentlyBookmarked) {
-                                        await firebaseService.addBookmark((user as any).uid, qId, q);
-                                      } else {
-                                        await firebaseService.removeBookmark((user as any).uid, qId);
-                                      }
-                                    } catch (err) {
-                                      console.error("Failed to update bookmark in Firestore", err);
-                                    }
-                                  }
-                                }}
-                                className={`flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest rounded-lg border transition-all ${
-                                  bookmarks[currentIndex]
-                                    ? 'bg-amber-50 border-amber-400 text-amber-700 shadow-sm'
-                                    : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100'
-                                }`}
-                              >
-                                <Bookmark size={12} className={bookmarks[currentIndex] ? 'fill-amber-500 text-amber-500' : ''} />
-                                <span>{bookmarks[currentIndex] ? 'Saved' : 'Save'}</span>
-                              </button>
-                            </div>
-
-                            {/* Question Title & Rendering details */}
-                            <div className="relative">
-                              <span className="absolute left-0 top-0.5 px-2 py-0.5 bg-primary/10 text-primary text-[9px] font-extrabold rounded-sm uppercase tracking-widest">
-                                {isReviewMode ? 'Notebook Review' : `${config.subject}`}
-                              </span>
-                              
-                              <AnimatePresence>
-                                {consecutiveCorrect >= 3 && (
-                                  <motion.span 
-                                    initial={{ opacity: 0, x: -10 }}
-                                    animate={{ opacity: 1, x: 0 }}
-                                    exit={{ opacity: 0 }}
-                                    className="absolute right-0 top-0.5 text-[9px] font-extrabold text-accent uppercase tracking-widest flex items-center gap-1 inline-flex"
-                                  >
-                                    <Zap size={9} /> Leveling Up
-                                  </motion.span>
-                                )}
-                              </AnimatePresence>
-                              
-                              {/* Question display */}
-                              <h2 className="text-xl md:text-2xl font-medium mt-8 md:mt-10 leading-relaxed text-slate-800 tracking-normal border-l-4 border-slate-205 pl-4">
-                                {questions[currentIndex]?.question}
-                              </h2>
-                            </div>
-
-                            {/* 📐 SPARTAN SPACIOUS LAYOUT SEPARATOR MARGIN */}
-                            {/* Insert significant padding (32px to 48px) between question text and first option */}
-                            <div className="h-10 md:h-12"></div>
-
-                            {/* 🪟 DISTINCT VERTICAL OPTIONS GRID */}
-                            <div className="space-y-4">
+                {/* Options Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
                   {questions[currentIndex] && Object.entries(questions[currentIndex].options).map(([key, value]) => {
                     const isCorrect = key === questions[currentIndex].correctAnswer;
                     const isSelected = key === userAnswers[currentIndex];
                     
-                    let btnClass = "border-slate-200/85 bg-white hover:border-primary shadow-sm hover:bg-slate-50/45";
-                    let keyBadgeClass = "bg-slate-100 text-slate-700 border-slate-200 group-hover:bg-primary group-hover:text-white group-hover:border-primary";
+                    let btnClass = "border-slate-200 bg-white hover:border-primary shadow-sm hover:shadow-md";
+                    let circleClass = "border-slate-200 text-slate-400 group-hover:bg-primary group-hover:text-white group-hover:border-primary";
 
                     if (isAnswered) {
                       if (isCorrect) {
                         btnClass = "border-primary bg-primary/5 shadow-lg pointer-events-none ring-2 ring-primary/20";
-                        keyBadgeClass = "bg-primary text-white border-primary scale-105";
+                        circleClass = "bg-primary text-white border-primary scale-110";
                       } else if (isSelected) {
-                        btnClass = "border-red-400 bg-red-100/30 pointer-events-none";
-                        keyBadgeClass = "bg-red-500 text-white border-red-500";
+                        btnClass = "border-red-400 bg-red-50/50 pointer-events-none";
+                        circleClass = "bg-red-500 text-white border-red-500";
                       } else {
-                        btnClass = "opacity-40 grayscale pointer-events-none border-slate-105 bg-white shadow-none";
-                        keyBadgeClass = "bg-slate-100 text-slate-400 border-slate-200";
+                        btnClass = "opacity-40 grayscale pointer-events-none border-slate-100 bg-white shadow-none";
                       }
                     }
 
                     return (
                       <motion.button
                         key={key}
-                        whileHover={!isAnswered ? { x: 4 } : {}}
-                        whileTap={!isAnswered ? { scale: 0.99 } : {}}
+                        whileHover={!isAnswered ? { y: -4, scale: 1.01 } : {}}
+                        whileTap={!isAnswered ? { scale: 0.98 } : {}}
                         onClick={() => handleSelectAnswer(key)}
-                        className={`w-full flex items-center gap-4 p-4 md:p-5 border transition-all text-left group relative min-h-[64px] ${
-                          theme === 'rajasthan' ? 'rounded-2xl' : 'rounded-xl'
+                        className={`flex items-center gap-5 p-5 md:p-6 border transition-all text-left group relative min-h-[80px] ${
+                          theme === 'rajasthan' ? 'rounded-3xl' : 'rounded-2xl'
                         } ${btnClass}`}
                       >
-                        <span className={`w-8 h-8 shrink-0 rounded-lg border flex items-center justify-center font-mono font-extrabold text-sm tracking-widest transition-all ${keyBadgeClass}`}>
+                        <span className={`w-10 h-10 md:w-12 md:h-12 shrink-0 rounded-xl border-2 flex items-center justify-center font-bold text-lg transition-all ${circleClass}`}>
                           {key}
                         </span>
-                        <span className={`text-base flex-1 leading-relaxed text-slate-700 ${isSelected && !isAnswered ? 'font-semibold text-slate-800' : 'font-medium'}`}>
-                          {value}
-                        </span>
-                        
+                        <span className={`text-base md:text-lg flex-1 leading-tight ${isSelected && !isAnswered ? 'font-bold' : 'font-medium'}`}>{value}</span>
                         {isAnswered && isCorrect && (
-                          <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="absolute right-4 shrink-0">
-                            <CheckCircle2 className="text-primary" size={20} />
+                          <motion.div 
+                            initial={{ scale: 0 }}
+                            animate={{ scale: 1 }}
+                            className="absolute right-5"
+                          >
+                            <CheckCircle2 className="text-primary" size={24} />
                           </motion.div>
                         )}
                         {isAnswered && isSelected && !isCorrect && (
-                          <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="absolute right-4 shrink-0">
-                            <XCircle className="text-red-500" size={20} />
+                          <motion.div 
+                            initial={{ scale: 0 }}
+                            animate={{ scale: 1 }}
+                            className="absolute right-5"
+                          >
+                            <XCircle className="text-red-500" size={24} />
                           </motion.div>
                         )}
                       </motion.button>
                     );
                   })}
                 </div>
-              </div>
 
-                {/* ⚙️ DESKTOP PREVIEW INFORMATION ROW */}
-                <div className="hidden md:flex items-center justify-between text-[11px] text-slate-400 uppercase font-semibold px-2 mb-6">
-                  <span>Diagnostic Engine Matches RPSC Standards</span>
-                  <span>Secure Cloud Logging Enabled</span>
+                <div className="flex items-center justify-between mt-12 border-t border-slate-200 pt-8 pb-4 md:pb-0 hidden md:flex">
+                  <div className="flex gap-4">
+                    <button 
+                      onClick={prevQuestion}
+                      disabled={currentIndex === 0}
+                      className="touch-target text-slate-400 font-bold uppercase text-[10px] tracking-widest hover:text-slate-600 flex items-center gap-1 disabled:opacity-20 transition-all"
+                    >
+                      <ChevronLeft size={14} /> Previous
+                    </button>
+                    {!isAnswered && (
+                      <button 
+                        onClick={skipQuestion}
+                        className="touch-target text-slate-400 font-bold uppercase text-[10px] tracking-widest hover:text-slate-600 transition-all"
+                      >
+                        Skip Question
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex gap-4">
+                     {isAnswered && questions[currentIndex]?.question.toLowerCase().includes('ganga') && (
+                        <button 
+                          onClick={() => {
+                            feedback('click');
+                            setIsMapOpen(true);
+                          }}
+                          className="px-6 bg-white border border-primary/30 text-primary font-bold rounded shadow-sm transition-all uppercase text-[10px] tracking-widest flex items-center gap-2 hover:bg-primary/5 h-[44px]"
+                        >
+                          <MapIcon size={14} /> Explore Map
+                        </button>
+                      )}
+                     <button 
+                       onClick={nextQuestion}
+                       className={`touch-target px-8 text-white font-bold rounded shadow-lg transition-all uppercase text-[11px] tracking-widest flex items-center gap-2 ${
+                         isAnswered ? 'bg-primary shadow-primary/20 brightness-110' : 'bg-slate-400 opacity-60'
+                       }`}
+                     >
+                       {currentIndex === questions.length - 1 ? 'Finish Exam' : (isAnswered ? 'Save & Next' : 'Select Answer')} <ChevronRight size={18} />
+                     </button>
+                  </div>
                 </div>
 
-                {/* 📲 RESPONSIVE BOTTOM STICKY NAVIGATION BAR */}
-                {/* Persistent bottom touchscreen safe sticky element bar, fully accessible with >48px targets */}
-                <div className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200/80 shadow-[0_-12px_40px_rgba(0,0,0,0.06)] py-4 px-4 md:px-8">
-                  <div className="max-w-3xl mx-auto flex items-center justify-between gap-4">
-                    
-                    {/* Left Action Button: Mark for Review & Next */}
-                    <button 
-                      onClick={() => {
-                        feedback('click');
-                        setMarkedForReview(prev => ({ ...prev, [currentIndex]: !prev[currentIndex] }));
-                        nextQuestion();
-                      }}
-                      className={`flex-1 h-[48px] px-4 rounded-xl font-bold uppercase text-[11px] tracking-wider border transition-all active:scale-95 text-center flex items-center justify-center ${
-                        markedForReview[currentIndex]
-                          ? 'bg-amber-100/60 border-amber-300 text-amber-800'
-                          : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-600'
-                      }`}
-                    >
-                      {markedForReview[currentIndex] ? '★ Marked for Review' : 'Mark for Review & Next'}
-                    </button>
-
-                    {/* Right Action Button: Save & Next (Cyan Accent) */}
-                    <button 
-                      onClick={() => {
-                        feedback('click');
-                        nextQuestion();
-                      }}
-                      className="flex-1 h-[48px] px-6 text-white font-extrabold rounded-xl shadow-md uppercase text-[11px] tracking-wider flex items-center justify-center gap-1.5 transition-all active:scale-95"
-                      style={{ backgroundColor: '#00c5bc' }}
-                    >
-                      <span>{currentIndex === questions.length - 1 ? 'Finish Exam' : 'Save & Next'}</span>
-                      <ChevronRight size={16} />
-                    </button>
-                  </div>
+                {/* Mobile Sticky Bottom Nav for Quiz */}
+                <div className="md:hidden fixed bottom-6 left-4 right-4 z-50 glass rounded-3xl p-4 flex items-center justify-between shadow-[0_20px_50px_rgba(0,0,0,0.3)]">
+                   <div className="flex flex-col pl-2">
+                      <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter">Question</span>
+                      <span className="text-sm font-bold text-main italic">Q{currentIndex + 1}/{questions.length}</span>
+                   </div>
+                   
+                    <div className="flex gap-3">
+                      <button 
+                        onClick={prevQuestion}
+                        disabled={currentIndex === 0}
+                        className="w-10 h-10 flex items-center justify-center bg-white border border-slate-200 rounded-2xl text-slate-400 disabled:opacity-20 active:scale-95 transition-all shadow-sm"
+                      >
+                        <ChevronLeft size={20} />
+                      </button>
+                      {isAnswered && questions[currentIndex]?.question.toLowerCase().includes('ganga') && (
+                         <button 
+                           onClick={() => {
+                             feedback('click');
+                             setIsMapOpen(true);
+                           }}
+                           className="w-10 h-10 flex items-center justify-center bg-white border border-primary/30 rounded-2xl text-primary active:scale-95 transition-all shadow-sm"
+                         >
+                           <Compass size={20} />
+                         </button>
+                       )}
+                      {!isAnswered && (
+                        <button 
+                          onClick={skipQuestion}
+                          className="px-4 h-10 bg-white border border-slate-200 text-slate-400 font-bold rounded-2xl active:scale-95 transition-all text-[10px] uppercase tracking-widest"
+                        >
+                          Skip
+                        </button>
+                      )}
+                      <button 
+                        onClick={nextQuestion}
+                        className={`px-6 h-10 text-white font-bold rounded-2xl shadow-lg flex items-center gap-2 active:scale-95 transition-all text-[10px] uppercase tracking-widest ${
+                          isAnswered ? 'bg-primary' : 'bg-slate-400 opacity-60'
+                        }`}
+                      >
+                        {currentIndex === questions.length - 1 ? 'Finish' : (isAnswered ? 'Save' : 'Next')}
+                        <ChevronRight size={16} />
+                      </button>
+                   </div>
                 </div>
 
                           {isAnswered && questions[currentIndex] && (
@@ -2018,257 +1462,6 @@ export default function App() {
             <AnimatePresence>
               {isMapOpen && (
                 <RiverMap onClose={() => setIsMapOpen(false)} feedback={feedback} />
-              )}
-
-              {settingsOpen && (
-                <motion.div 
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/65 backdrop-blur-sm"
-                  onClick={() => setSettingsOpen(false)}
-                >
-                  <motion.div 
-                    initial={{ scale: 0.95, y: 15 }}
-                    animate={{ scale: 1, y: 0 }}
-                    exit={{ scale: 0.95, y: 15 }}
-                    transition={{ type: 'spring', damping: 25, stiffness: 350 }}
-                    className={`relative w-full max-w-md overflow-hidden p-6 shadow-2xl border ${
-                      theme === 'rajasthan' 
-                        ? 'bg-amber-50 border-amber-600 rounded-[2rem] text-slate-800' 
-                        : 'bg-white border-slate-200 rounded-2xl text-slate-850'
-                    }`}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    {/* Header */}
-                    <div className="flex items-center justify-between border-b pb-4 mb-5 border-slate-100">
-                      <div className="flex items-center gap-2.5">
-                        <SettingsIcon size={20} className={theme === 'rajasthan' ? 'text-rose-800' : 'text-primary'} />
-                        <div>
-                          <h3 className={`text-lg font-bold ${theme === 'rajasthan' ? 'font-serif text-rose-900 italic' : 'font-display'}`}>
-                            {theme === 'rajasthan' ? 'परीक्षा सेटिंग्स (Settings)' : 'Application Settings'}
-                          </h3>
-                          <p className="text-[10px] text-slate-400 font-medium tracking-wide uppercase">API Configuration</p>
-                        </div>
-                      </div>
-                      <button 
-                        onClick={() => setSettingsOpen(false)}
-                        className="p-1.5 rounded-full hover:bg-slate-100/80 text-slate-400 hover:text-slate-600 transition-colors"
-                      >
-                        <X size={18} />
-                      </button>
-                    </div>
-
-                    {/* Content */}
-                    <div className="space-y-6">
-                      {/* Toggle Module */}
-                      <div className="flex items-start justify-between gap-4 p-4 rounded-xl bg-slate-50 border border-slate-100">
-                        <div className="flex-1">
-                          <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest block mb-1">
-                            Use Custom API Key
-                          </label>
-                          <span className="text-xs text-slate-400 font-medium leading-relaxed block">
-                            Toggle client-side custom API key capability instead of the server default.
-                          </span>
-                        </div>
-                        
-                        {/* Custom Switch Component */}
-                        <button
-                          role="switch"
-                          aria-checked={useCustomApiKey}
-                          onClick={() => {
-                            feedback('click');
-                            setUseCustomApiKey(!useCustomApiKey);
-                          }}
-                          className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                            useCustomApiKey ? 'bg-primary' : 'bg-slate-200'
-                          }`}
-                        >
-                          <span
-                            aria-hidden="true"
-                            className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-205 ease-in-out ${
-                              useCustomApiKey ? 'translate-x-5' : 'translate-x-0'
-                            }`}
-                          />
-                        </button>
-                      </div>
-
-                      {/* Config Input Field */}
-                      {useCustomApiKey && (
-                        <motion.div 
-                          initial={{ opacity: 0, height: 0 }}
-                          animate={{ opacity: 1, height: 'auto' }}
-                          exit={{ opacity: 0, height: 0 }}
-                          className="space-y-4 pt-1"
-                        >
-                          <div>
-                            <label className="block text-[10px] md:text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-2.5">
-                              Custom Gemini API Key
-                            </label>
-                            <input 
-                              type="password"
-                              placeholder="AIzaSy..."
-                              value={customApiKey}
-                              onChange={(e) => setCustomApiKey(e.target.value)}
-                              className="w-full bg-slate-55 border border-slate-200 p-3 text-xs md:text-sm font-mono tracking-tight text-slate-700 focus:border-primary outline-none focus:ring-1 focus:ring-primary/20 rounded-xl transition-all"
-                            />
-                            <p className="text-[10px] text-slate-400 italic mt-1.5 leading-normal">
-                              Stored only inside your local browser. Never synchronized or logged anywhere else.
-                            </p>
-                          </div>
-
-                          <div className="flex flex-col gap-3">
-                            <button
-                              disabled={testingApiKey}
-                              onClick={handleTestApiKey}
-                              className={`touch-target w-full text-center py-3 px-4 font-bold rounded-xl text-xs uppercase tracking-widest transition-all inline-flex items-center justify-center gap-2 ${
-                                testingApiKey 
-                                  ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                                  : 'bg-slate-900 text-white hover:bg-slate-800'
-                              }`}
-                            >
-                              {testingApiKey ? (
-                                <>
-                                  <Loader2 size={14} className="animate-spin" />
-                                  <span>Testing Key...</span>
-                                </>
-                              ) : (
-                                <span>Test API Key</span>
-                              )}
-                            </button>
-
-                            {/* Testing feedback */}
-                            {testResult.status === 'valid' && (
-                              <motion.div 
-                                initial={{ opacity: 0, y: -5 }} 
-                                animate={{ opacity: 1, y: 0 }}
-                                className="p-3 bg-green-50 border border-green-200 rounded-xl text-green-700 text-xs font-bold flex items-center gap-2"
-                              >
-                                <CheckCircle2 size={16} className="text-green-600 shrink-0" />
-                                <span>API Key Valid</span>
-                              </motion.div>
-                            )}
-
-                            {testResult.status === 'invalid' && (
-                              <motion.div 
-                                initial={{ opacity: 0, y: -5 }} 
-                                animate={{ opacity: 1, y: 0 }}
-                                className="p-3.5 bg-red-50 border border-red-200 rounded-xl text-red-700 text-xs font-medium flex flex-col gap-1 leading-normal"
-                              >
-                                <div className="flex items-center gap-2 font-bold">
-                                  <XCircle size={16} className="text-red-500 shrink-0" />
-                                  <span>API Key Invalid</span>
-                                </div>
-                                {testResult.error && (
-                                  <p className="text-[10px] text-red-800/80 font-mono mt-0.5 break-all max-h-24 overflow-y-auto">
-                                    Error detail: {testResult.error}
-                                  </p>
-                                )}
-                              </motion.div>
-                            )}
-                          </div>
-                        </motion.div>
-                      )}
-                      {/* Firebase Configuration Section */}
-                      <div className="border-t pt-5 border-slate-100">
-                        <h4 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-3 flex items-center gap-1.5">
-                          <Database size={13} className="text-primary" />
-                          <span>Firebase GCP Configuration</span>
-                        </h4>
-
-                        <div className="space-y-4">
-                          <div>
-                            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-                              Firebase Project ID
-                            </label>
-                            <input 
-                              type="text"
-                              value={firebaseProjectId}
-                              onChange={(e) => setFirebaseProjectId(e.target.value)}
-                              placeholder="rpscquizapp"
-                              className="w-full bg-slate-50 border border-slate-200 p-2.5 text-xs font-semibold text-slate-700 focus:border-primary outline-none focus:ring-1 focus:ring-primary/20 rounded-lg"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-                              Realtime Database URL
-                            </label>
-                            <input 
-                              type="text"
-                              value={firebaseRtdbUrl}
-                              onChange={(e) => setFirebaseRtdbUrl(e.target.value)}
-                              placeholder="https://rpscquizapp-default-rtdb.firebaseio.com"
-                              className="w-full bg-slate-50 border border-slate-200 p-2.5 text-xs font-mono text-slate-600 focus:border-primary outline-none focus:ring-1 focus:ring-primary/20 rounded-lg"
-                            />
-                          </div>
-
-                          <div className="grid grid-cols-2 gap-3">
-                            <div>
-                              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-                                App ID (Optional)
-                              </label>
-                              <input 
-                                type="text"
-                                value={firebaseAppId}
-                                onChange={(e) => setFirebaseAppId(e.target.value)}
-                                placeholder="1:5303:..."
-                                className="w-full bg-slate-50 border border-slate-200 p-2 text-[11px] text-slate-500 focus:border-primary outline-none rounded-lg"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-                                API Key (Optional)
-                              </label>
-                              <input 
-                                type="password"
-                                value={firebaseApiKey}
-                                onChange={(e) => setFirebaseApiKey(e.target.value)}
-                                placeholder="••••••••••••"
-                                className="w-full bg-slate-50 border border-slate-200 p-2 text-[11px] text-slate-500 focus:border-primary outline-none rounded-lg"
-                              />
-                            </div>
-                          </div>
-
-                          <p className="text-[10px] text-slate-400 leading-relaxed italic">
-                            Modifying these will update your active database target to your custom RTDB instance. Make sure path `/quizzes` is formatted.
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Footer / Confirm button */}
-                    <div className="mt-8 pt-4 border-t border-slate-100 flex justify-end">
-                      <button
-                        onClick={() => {
-                          feedback('click');
-                          setSettingsOpen(false);
-                          
-                          const oldPrj = localStorage.getItem('firebase_project_id') || 'rpscquizapp';
-                          const oldUrl = localStorage.getItem('firebase_rtdb_url') || 'https://rpscquizapp-default-rtdb.firebaseio.com';
-                          const oldKey = localStorage.getItem('firebase_api_key') || '';
-                          const oldId = localStorage.getItem('firebase_app_id') || '';
-
-                          if (
-                            oldPrj !== firebaseProjectId || 
-                            oldUrl !== firebaseRtdbUrl || 
-                            oldKey !== firebaseApiKey || 
-                            oldId !== firebaseAppId
-                          ) {
-                            localStorage.setItem('firebase_project_id', firebaseProjectId);
-                            localStorage.setItem('firebase_rtdb_url', firebaseRtdbUrl);
-                            localStorage.setItem('firebase_api_key', firebaseApiKey);
-                            localStorage.setItem('firebase_app_id', firebaseAppId);
-                            window.location.reload();
-                          }
-                        }}
-                        className={`touch-target px-5 py-2.5 bg-primary text-white font-bold text-xs uppercase tracking-widest rounded-xl hover:brightness-115 active:scale-95 transition-all shadow-md shadow-primary/20`}
-                      >
-                        OK
-                      </button>
-                    </div>
-                  </motion.div>
-                </motion.div>
               )}
             </AnimatePresence>
           </motion.div>

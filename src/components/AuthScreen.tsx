@@ -56,9 +56,9 @@ export default function AuthScreen({ onSuccess, onBack }: AuthScreenProps) {
     try {
       let user;
       if (mode === 'SIGNUP') {
-        user = await mockAuth.signup(formData.name, formData.email, formData.password);
+        user = await mockAuth.signup(formData.name, formData.email);
       } else {
-        user = await mockAuth.login(formData.email, formData.password);
+        user = await mockAuth.login(formData.email);
       }
       feedback('success');
       onSuccess(user);
