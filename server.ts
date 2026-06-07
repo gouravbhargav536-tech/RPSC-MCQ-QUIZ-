@@ -12,7 +12,10 @@ app.use(express.json());
 function getAIInstance(customApiKey?: string): GoogleGenAI {
   const apiKey = customApiKey || process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    throw new Error('No API key provided. Please configure GEMINI_API_KEY or provide a custom API key.');
+    throw new Error('No Gemini API Key was found on the server. Please define your GEMINI_API_KEY secret in Settings > Secrets or enable Custom API Key in the application settings.');
+  }
+  if (apiKey === 'MY_GEMINI_API_KEY') {
+    throw new Error('The server Gemini API Key is unconfigured (holds the default placeholder value "MY_GEMINI_API_KEY"). Please set your valid Gemini API Key in the Settings > Secrets panel of your AI Studio workspace, or enable Custom API Key in the application settings.');
   }
   return new GoogleGenAI({
     apiKey: apiKey,
@@ -22,6 +25,75 @@ function getAIInstance(customApiKey?: string): GoogleGenAI {
       }
     }
   });
+}
+
+// Robust content generation helper with exponential backoff retries and model fallback.
+async function generateContentWithRetryAndFallback(
+  ai: GoogleGenAI,
+  options: {
+    contents: any;
+    config?: any;
+    initialModel?: string;
+  }
+) {
+  const modelsToTry = [options.initialModel || 'gemini-3.5-flash', 'gemini-3.1-flash-lite'];
+  let lastError: any = null;
+
+  for (const model of modelsToTry) {
+    let delay = 1000; // start with 1s delay
+    const maxRetries = 3;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        console.log(`[Gemini API] Requesting model ${model} (attempt ${attempt}/${maxRetries})...`);
+        const response = await ai.models.generateContent({
+          model: model,
+          contents: options.contents,
+          config: options.config,
+        });
+        return response;
+      } catch (error: any) {
+        lastError = error;
+        const errStr = String(error?.message || error).toLowerCase();
+        const status = error?.status || error?.code || (error?.error && error?.error?.code);
+        
+        // Fail-fast immediately for invalid API key errors (do not retry or fallback)
+        const isApiKeyError = 
+          status === 400 && 
+          (errStr.includes('api key') || errStr.includes('api_key') || errStr.includes('key not valid') || errStr.includes('invalid_argument') || errStr.includes('credential'));
+        
+        if (isApiKeyError) {
+          console.error(`[Gemini API] Authentication error on model ${model}: ${error?.message || error}. Aborting further processes.`);
+          throw error;
+        }
+
+        // Treat 503, 429, unavailable, overload, rate limit, quota, and demand errors as transient
+        const isTransient = 
+          status === 503 || 
+          status === 429 || 
+          status === 'UNAVAILABLE' ||
+          errStr.includes('demand') || 
+          errStr.includes('limit') || 
+          errStr.includes('rate') || 
+          errStr.includes('temporary') || 
+          errStr.includes('unavailable') ||
+          errStr.includes('overload') ||
+          errStr.includes('busy');
+
+        if (isTransient && attempt < maxRetries) {
+          console.warn(`[Gemini API] Transient error on model ${model}: ${error?.message || error}. Retrying in ${delay}ms...`);
+          await new Promise((resolve) => setTimeout(resolve, delay));
+          delay *= 2; // exponential backoff
+        } else {
+          console.error(`[Gemini API] Failed on model ${model} (attempt ${attempt}/${maxRetries}): ${error?.message || error}`);
+          break; // break the attempt loop to try the next model
+        }
+      }
+    }
+  }
+
+  // If we reach here, both models failed after all retries
+  throw lastError || new Error('All model attempts and retries failed');
 }
 
 // API health route
@@ -47,9 +119,9 @@ app.post('/api/test-api-key', async (req, res) => {
       }
     });
 
-    // Hit the models.generateContent to verify the API key authenticity
-    await testAi.models.generateContent({
-      model: 'gemini-3.5-flash',
+    // Hit the models using our retry/fallback helper to verify API key authenticity
+    await generateContentWithRetryAndFallback(testAi, {
+      initialModel: 'gemini-3.5-flash',
       contents: 'Ping',
     });
 
@@ -112,8 +184,8 @@ app.post('/api/generate-quiz', async (req, res) => {
     const customApiKey = req.headers['x-custom-api-key'] as string | undefined;
     const activeAi = getAIInstance(customApiKey);
 
-    const response = await activeAi.models.generateContent({
-      model: 'gemini-3.5-flash',
+    const response = await generateContentWithRetryAndFallback(activeAi, {
+      initialModel: 'gemini-3.5-flash',
       contents: prompt,
       config: {
         responseMimeType: 'application/json',

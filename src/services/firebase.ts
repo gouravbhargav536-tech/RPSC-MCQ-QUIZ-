@@ -1,6 +1,7 @@
 import { initializeApp, getApp, getApps } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
+import { getDatabase } from 'firebase/database';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 // Initialize Firebase using the provisioned applet metadata config
@@ -17,6 +18,7 @@ export const hasFirebaseVars = !!(firebaseConfig && firebaseConfig.projectId && 
 // Ensure the db is initialized with our custom enterprise firestore database instance ID
 export const db = app ? getFirestore(app, firebaseConfig.firestoreDatabaseId) : null;
 export const auth = app ? getAuth(app) : null;
+export const rtdb = app ? getDatabase(app, (firebaseConfig as any).databaseURL || `https://${firebaseConfig.projectId}-default-rtdb.firebaseio.com`) : null;
 
 export enum OperationType {
   CREATE = 'create',

@@ -66,6 +66,7 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [testingApiKey, setTestingApiKey] = useState(false);
   const [testResult, setTestResult] = useState<{ status: 'valid' | 'invalid' | null; error?: string }>({ status: null });
+  const [quizError, setQuizError] = useState<string | null>(null);
 
   // Dynamically save state to localStorage when values are modified
   useEffect(() => {
@@ -316,12 +317,52 @@ export default function App() {
     };
   }, [screen, loading, isPaused]);
 
-  const startSetup = (subject: Subject) => {
+  const getCategoryIdentifier = (sub: string): string => {
+    switch (sub) {
+      case 'Rajasthan Current Affairs': return 'rajasthan_current_affairs';
+      case 'National Current Affairs': return 'national_current_affairs';
+      case 'Rajasthan GK': return 'rajasthan_gk';
+      case 'Indian GK': return 'indian_gk';
+      case 'Mathematics': return 'mathematics';
+      case 'Science': return 'science';
+      case 'Reasoning': return 'reasoning';
+      case 'Hindi': return 'hindi';
+      case 'English': return 'english';
+      default: return sub.toLowerCase().replace(/\s+/g, '_');
+    }
+  };
+
+  const startSetup = async (subject: Subject) => {
     feedback('click');
+    setLoading(true);
+    setQuizError(null);
     setConfig(prev => ({ ...prev, subject }));
     setIsReviewMode(false);
     setIsDailyChallenge(false);
-    setScreen('SETUP');
+    setScreen('QUIZ');
+    
+    const categoryIdent = getCategoryIdentifier(subject);
+    try {
+      console.log(`[RTDB Fetch] Querying quizzes under category "${categoryIdent}"`);
+      const rtdbQuestions = await firebaseService.fetchQuizzesByCategory(categoryIdent);
+      
+      if (rtdbQuestions && rtdbQuestions.length > 0) {
+        setQuestions(rtdbQuestions);
+        setCurrentIndex(0);
+        setQuizTimer(0);
+        setIsAnswered(false);
+      } else {
+        throw new Error(
+          `No quizzes found in Firebase Realtime Database at the path '/quizzes' for category identifier "${categoryIdent}". Please ensure some objects with 'category' matching "${categoryIdent}" exist at that path.`
+        );
+      }
+    } catch (error: any) {
+      console.error("RTDB Quiz loading failed:", error);
+      setQuizError(error?.message || "Failed to fetch quizzes from Realtime Database.");
+      setScreen('SETUP');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const startMistakeReview = () => {
@@ -438,6 +479,7 @@ export default function App() {
   const confirmStartQuiz = async () => {
     feedback('click');
     setLoading(true);
+    setQuizError(null);
     setScreen('QUIZ');
     try {
       const generatedQuestions = await generateQuizQuestions(config);
@@ -446,8 +488,9 @@ export default function App() {
       setCurrentIndex(0);
       setQuizTimer(0);
       setIsAnswered(false);
-    } catch (error) {
-      alert("Error generating quiz. Please try again.");
+    } catch (error: any) {
+      console.error("Quiz generation failed:", error);
+      setQuizError(error?.message || "Error generating quiz. Please try again.");
       setScreen('SETUP');
     } finally {
       setLoading(false);
@@ -1100,6 +1143,35 @@ export default function App() {
                            <div className="text-center md:text-left">
                              <h2 className="text-2xl md:text-3xl font-display text-main">{config.subject}</h2>
                              <p className="text-xs md:text-sm text-slate-500 italic">Configuration & AI Tuning</p>
+                             {quizError && (
+                               <div className="mt-4 p-4 bg-red-50 border-l-4 border-red-500 rounded-lg text-red-750 flex flex-col gap-2 shadow-sm text-left">
+                                 <div className="flex items-center gap-2 font-bold text-sm">
+                                   <AlertCircle size={16} className="text-red-500" />
+                                   <span>API Generation Error</span>
+                                 </div>
+                                 <p className="text-xs text-red-650 font-medium leading-relaxed normal-case font-sans">
+                                   {quizError}
+                                 </p>
+                                 <div className="mt-1.5 flex gap-3 text-[10px] font-bold uppercase tracking-widest font-sans">
+                                   <button
+                                     onClick={() => {
+                                       setSettingsOpen(true);
+                                       setQuizError(null);
+                                     }}
+                                     className="text-red-700 hover:text-red-900 underline flex items-center gap-1 cursor-pointer"
+                                   >
+                                     Configure Custom API Key
+                                   </button>
+                                   <span className="text-slate-300">|</span>
+                                   <button
+                                     onClick={() => setQuizError(null)}
+                                     className="text-slate-500 hover:text-slate-800 cursor-pointer"
+                                   >
+                                     Dismiss
+                                   </button>
+                                 </div>
+                                </div>
+                              )}
                            </div>
                         </div>
 
