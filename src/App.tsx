@@ -50,6 +50,7 @@ import { firebaseService } from './services/firebaseService';
 import { Play, Pause, Bookmark, Terminal, AlertCircle, ShieldAlert, Settings as SettingsIcon, Database } from 'lucide-react';
 import axios from 'axios';
 import { sampleQuizzes } from './services/sampleQuizzes';
+import firebaseConfig from '../firebase-applet-config.json';
 
 export default function App() {
   const [screen, setScreen] = useState<'LANDING' | 'INTRO' | 'AUTH' | 'HOME' | 'SETUP' | 'RULES' | 'QUIZ' | 'RESULTS'>('LANDING');
@@ -65,20 +66,25 @@ export default function App() {
     return localStorage.getItem('custom_api_key') || '';
   });
   const [firebaseProjectId, setFirebaseProjectId] = useState<string>(() => {
-    return localStorage.getItem('firebase_project_id') || 'rpscquizapp';
+    const stored = localStorage.getItem('firebase_project_id');
+    if (stored !== null) return stored;
+    return firebaseConfig.projectId || 'rpscquizapp';
   });
   const [firebaseApiKey, setFirebaseApiKey] = useState<string>(() => {
-    return localStorage.getItem('firebase_api_key') || '';
+    const stored = localStorage.getItem('firebase_api_key');
+    if (stored !== null) return stored;
+    return firebaseConfig.apiKey || '';
   });
   const [firebaseAppId, setFirebaseAppId] = useState<string>(() => {
-    return localStorage.getItem('firebase_app_id') || '';
+    const stored = localStorage.getItem('firebase_app_id');
+    if (stored !== null) return stored;
+    return firebaseConfig.appId || '';
   });
   const [firebaseRtdbUrl, setFirebaseRtdbUrl] = useState<string>(() => {
     const stored = localStorage.getItem('firebase_rtdb_url');
-    if (!stored || stored === 'https://rpscquizapp-default-rtdb.firebaseio.com') {
-      return 'https://rpscquizapp-default-rtdb.asia-southeast1.firebasedatabase.app';
-    }
-    return stored;
+    if (stored !== null) return stored;
+    const defaultProj = firebaseConfig.projectId || 'rpscquizapp';
+    return `https://${defaultProj}-default-rtdb.asia-southeast1.firebasedatabase.app`;
   });
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [testingApiKey, setTestingApiKey] = useState(false);

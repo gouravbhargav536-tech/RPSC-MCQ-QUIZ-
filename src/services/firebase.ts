@@ -11,16 +11,24 @@ export const getActiveFirebaseConfig = () => {
   const localAppId = typeof window !== 'undefined' ? localStorage.getItem('firebase_app_id') : null;
   const localRtdbUrl = typeof window !== 'undefined' ? localStorage.getItem('firebase_rtdb_url') : null;
 
+  // If local values exist, respect them. Otherwise fall back to workspace config or default placeholders.
+  const projId = localProject !== null ? localProject : (firebaseConfig.projectId || 'rpscquizapp');
+  const apiKey = localApiKey !== null ? localApiKey : (firebaseConfig.apiKey || '');
+  const appId = localAppId !== null ? localAppId : (firebaseConfig.appId || '');
+
+  const defaultRtdbUrl = `https://${projId}-default-rtdb.asia-southeast1.firebasedatabase.app`;
+  const resolvedRtdbUrl = localRtdbUrl !== null ? localRtdbUrl : ((firebaseConfig as any).databaseURL || defaultRtdbUrl);
+
   return {
-    projectId: localProject || firebaseConfig.projectId || 'rpscquizapp',
-    appId: localAppId || firebaseConfig.appId,
-    apiKey: localApiKey || firebaseConfig.apiKey,
-    authDomain: `${localProject || firebaseConfig.projectId || 'rpscquizapp'}.firebaseapp.com`,
+    projectId: projId,
+    appId: appId,
+    apiKey: apiKey,
+    authDomain: `${projId}.firebaseapp.com`,
     firestoreDatabaseId: firebaseConfig.firestoreDatabaseId || '(default)',
-    storageBucket: `${localProject || firebaseConfig.projectId || 'rpscquizapp'}.firebasestorage.app`,
+    storageBucket: `${projId}.firebasestorage.app`,
     messagingSenderId: firebaseConfig.messagingSenderId,
     measurementId: firebaseConfig.measurementId,
-    databaseURL: localRtdbUrl || (firebaseConfig as any).databaseURL || `https://${localProject || firebaseConfig.projectId || 'rpscquizapp'}-default-rtdb.asia-southeast1.firebasedatabase.app`
+    databaseURL: resolvedRtdbUrl
   };
 };
 
