@@ -1,46 +1,69 @@
 {
   "entities": {
-    "Session": {
-      "title": "Session",
-      "description": "A live-syncing active exam/quiz study session across Android and React",
+    "User": {
+      "title": "User Profile",
+      "description": "Represents a registered RPSC AI-Quizzer user profile",
       "type": "object",
       "properties": {
-        "session_id": {
-          "type": "string",
-          "description": "The unique session identifier"
-        },
-        "operation": {
-          "type": "string",
-          "description": "Active sync operation tracking descriptor"
-        },
-        "current_index": {
-          "type": "integer",
-          "description": "The current question index active in the session"
-        },
-        "sync_status": {
-          "type": "string",
-          "description": "Online real-time status of the stream"
-        },
-        "last_updated": {
-          "type": "integer",
-          "description": "Epoch timestamp of the last write"
-        },
-        "active_question_id": {
-          "type": "string",
-          "description": "Identifier of the currently loaded question"
-        },
-        "is_custom": {
-          "type": "boolean",
-          "description": "Indicates if the active question is dynamic/custom"
-        }
+        "name": { "type": "string", "description": "Full name of the user" },
+        "email": { "type": "string", "description": "Email address of the user" },
+        "streak": { "type": "integer", "description": "Current consecutive daily streak score" },
+        "badges": { "type": "array", "description": "Awarded certificates and merit badges" },
+        "lastQuizDate": { "type": "string", "description": "Date string of the last quiz taken" },
+        "lastDailyDate": { "type": "string", "description": "Date string of the last daily challenge taken" },
+        "quizCount": { "type": "integer", "description": "Total count of historical quizzes taken" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Timestamp of creation" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Timestamp of last modification" }
       },
-      "required": ["session_id", "operation", "current_index", "sync_status"]
+      "required": ["name", "email"]
+    },
+    "QuizAttempt": {
+      "title": "Quiz Attempt",
+      "description": "Represents a historical quiz performance entry",
+      "type": "object",
+      "properties": {
+        "subject": { "type": "string", "description": "The selected exam subject" },
+        "difficulty": { "type": "string", "description": "The selected exam difficulty level" },
+        "language": { "type": "string", "description": "The target translation language" },
+        "questionCount": { "type": "integer", "description": "Number of questions in custom set" },
+        "pattern": { "type": "string", "description": "RPSC pattern category" },
+        "topic": { "type": "string", "description": "Target topic constraint if specified" },
+        "score": { "type": "integer", "description": "Factual questions scored correctly" },
+        "timeSpent": { "type": "integer", "description": "Amount of time spent on the exam in seconds" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Timestamp of session completion" }
+      },
+      "required": ["subject", "difficulty", "language", "questionCount", "pattern", "score", "timeSpent", "createdAt"]
+    },
+    "Bookmark": {
+      "title": "Bookmark",
+      "description": "Represents a user bookmarked or saved question",
+      "type": "object",
+      "properties": {
+        "question": { "type": "string", "description": "The question title" },
+        "options": { "type": "object", "description": "The interactive multiple-choice options Map" },
+        "correctAnswer": { "type": "string", "description": "The correct answer key A, B, C, or D" },
+        "explanation": { "type": "string", "description": "Detailed answers and analysis metadata" },
+        "teacherInsight": { "type": "string", "description": "Guruji interactive summary comments" },
+        "wrongOptionsAnalysis": { "type": "object", "description": "Explanations of wrong options and logical traps" },
+        "extraFacts": { "type": "array", "description": "Additional related syllabus facts" },
+        "patternYear": { "type": "string", "description": "The specific RPSC year pattern" },
+        "bookmarkedAt": { "type": "string", "format": "date-time", "description": "Standard timestamp of addition" }
+      },
+      "required": ["question", "options", "correctAnswer", "explanation", "teacherInsight", "wrongOptionsAnalysis", "bookmarkedAt"]
     }
   },
   "firestore": {
-    "/sessions/{sessionId}": {
-      "schema": "Session",
-      "description": "Registry for active real-time exam engineering sessions"
+    "users/{userId}": {
+      "schema": "User",
+      "description": "User profiles indexed by their Firebase Authentication UID"
+    },
+    "users/{userId}/quiz_attempts/{attemptId}": {
+      "schema": "QuizAttempt",
+      "description": "RPSC examination attempt history subcollection for users"
+    },
+    "users/{userId}/bookmarks/{bookmarkId}": {
+      "schema": "Bookmark",
+      "description": "User high-interest saved questions subcollection"
     }
   }
 }

@@ -20,7 +20,6 @@ export interface Question {
     C: string;
     D: string;
   };
-  is_custom?: boolean;
 }
 
 export type Subject = 
@@ -34,19 +33,10 @@ export type Subject =
   | 'Rajasthan Current Affairs'
   | 'National Current Affairs';
 
-export interface SubjectMeta {
-  name: Subject;
-  icon: any;
-  color: string;
-  desc: string;
-}
-
 export type ExamPattern = '2012-2020' | '2021-Present';
 
 export type Difficulty = 'Easy' | 'Medium' | 'Hard';
 export type Language = 'Hindi' | 'English' | 'Hinglish';
-
-export type FeedbackMode = 'Instant Feedback' | 'Submit at End';
 
 export interface QuizConfig {
   subject: Subject;
@@ -55,7 +45,6 @@ export interface QuizConfig {
   questionCount: number;
   pattern: ExamPattern;
   topic?: string;
-  feedbackMode?: FeedbackMode;
 }
 
 export interface QuizResult {
