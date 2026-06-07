@@ -35,9 +35,6 @@ export async function generateQuizQuestions(config: QuizConfig): Promise<Questio
     return questions;
   } catch (error) {
     console.error("Error generating quiz in client service:", error);
-    if (axios.isAxiosError(error) && error.response?.data?.error) {
-      throw new Error(error.response.data.error);
-    }
     throw new Error("Failed to generate quiz questions. Please try again.");
   }
 }

@@ -12,10 +12,7 @@ app.use(express.json());
 function getAIInstance(customApiKey?: string): GoogleGenAI {
   const apiKey = customApiKey || process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    throw new Error('No Gemini API Key was found on the server. Please define your GEMINI_API_KEY secret in Settings > Secrets or enable Custom API Key in the application settings.');
-  }
-  if (apiKey === 'MY_GEMINI_API_KEY') {
-    throw new Error('The server Gemini API Key is unconfigured (holds the default placeholder value "MY_GEMINI_API_KEY"). Please set your valid Gemini API Key in the Settings > Secrets panel of your AI Studio workspace, or enable Custom API Key in the application settings.');
+    throw new Error('No API key provided. Please configure GEMINI_API_KEY or provide a custom API key.');
   }
   return new GoogleGenAI({
     apiKey: apiKey,
@@ -57,16 +54,6 @@ async function generateContentWithRetryAndFallback(
         const errStr = String(error?.message || error).toLowerCase();
         const status = error?.status || error?.code || (error?.error && error?.error?.code);
         
-        // Fail-fast immediately for invalid API key errors (do not retry or fallback)
-        const isApiKeyError = 
-          status === 400 && 
-          (errStr.includes('api key') || errStr.includes('api_key') || errStr.includes('key not valid') || errStr.includes('invalid_argument') || errStr.includes('credential'));
-        
-        if (isApiKeyError) {
-          console.error(`[Gemini API] Authentication error on model ${model}: ${error?.message || error}. Aborting further processes.`);
-          throw error;
-        }
-
         // Treat 503, 429, unavailable, overload, rate limit, quota, and demand errors as transient
         const isTransient = 
           status === 503 || 
