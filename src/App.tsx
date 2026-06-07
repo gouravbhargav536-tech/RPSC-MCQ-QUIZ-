@@ -1299,6 +1299,37 @@ export default function App() {
                                    {quizError}
                                  </p>
 
+                                 {/* Auto-detected Gemini API Key Helper */}
+                                 {(quizError.toLowerCase().includes('api key') || 
+                                    quizError.toLowerCase().includes('api_key') || 
+                                    quizError.toLowerCase().includes('key not valid') || 
+                                    quizError.toLowerCase().includes('invalid_argument') || 
+                                    quizError.toLowerCase().includes('credential') || 
+                                    quizError.toLowerCase().includes('unconfigured') ||
+                                    quizError.toLowerCase().includes('forbidden') ||
+                                    quizError.toLowerCase().includes('apierror') ||
+                                    quizError.toLowerCase().includes('authentication') ||
+                                    quizError.toLowerCase().includes('status code 500')) && (
+                                    <div className="mt-3 p-4 bg-amber-50 rounded-xl border border-amber-200 text-amber-950 flex flex-col gap-2.5 my-2">
+                                      <span className="font-bold text-xs uppercase tracking-wider block text-amber-800">🔑 Gemini API Key Resolution Guide:</span>
+                                      <p className="text-[11px] leading-relaxed font-sans text-amber-900 font-medium">
+                                        Your workspace or browser Gemini API Key is missing, has expired, or is invalid. To generate custom RPSC quizzes, click below to supply a valid API key:
+                                      </p>
+                                      <button
+                                        onClick={() => {
+                                          feedback('click');
+                                          setSettingsOpen(true);
+                                        }}
+                                        className="mt-1 w-full bg-amber-600 hover:bg-amber-700 text-white font-bold py-2.5 px-3 text-xs rounded-xl uppercase tracking-wider shadow active:scale-95 transition-all text-center flex items-center justify-center gap-1.5 cursor-pointer border-0"
+                                      >
+                                        ⚙️ Open Settings & Enable Custom API Key
+                                      </button>
+                                      <p className="text-[10px] text-amber-800 leading-normal italic">
+                                        Alternatively, make sure the `GEMINI_API_KEY` secret variable is set in your workspace Secrets configuration.
+                                      </p>
+                                    </div>
+                                  )}
+
                                  {/* Auto-detected Empty RTDB Seeder Helper */}
                                  {(quizError.includes('/quizzes') || quizError.includes('Realtime Database') || quizError.includes('RTDB') || quizError.toLowerCase().includes('unreachable') || quizError.includes('No quizzes found')) && (
                                    <div className="mt-4 p-4 bg-amber-50 rounded-xl border border-amber-200 text-amber-950 flex flex-col gap-2.5 select-none my-2">
