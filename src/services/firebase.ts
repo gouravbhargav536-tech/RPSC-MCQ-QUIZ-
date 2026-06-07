@@ -1,24 +1,50 @@
 import { initializeApp, getApp, getApps } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
-import { getDatabase } from 'firebase/database';
+import { getDatabase, ref, get } from 'firebase/database';
 import firebaseConfig from '../../firebase-applet-config.json';
 
-// Initialize Firebase using the provisioned applet metadata config
+// Support dynamic local storage configurations
+export const getActiveFirebaseConfig = () => {
+  const localProject = typeof window !== 'undefined' ? localStorage.getItem('firebase_project_id') : null;
+  const localApiKey = typeof window !== 'undefined' ? localStorage.getItem('firebase_api_key') : null;
+  const localAppId = typeof window !== 'undefined' ? localStorage.getItem('firebase_app_id') : null;
+  const localRtdbUrl = typeof window !== 'undefined' ? localStorage.getItem('firebase_rtdb_url') : null;
+
+  return {
+    projectId: localProject || firebaseConfig.projectId || 'rpscquizapp',
+    appId: localAppId || firebaseConfig.appId,
+    apiKey: localApiKey || firebaseConfig.apiKey,
+    authDomain: `${localProject || firebaseConfig.projectId || 'rpscquizapp'}.firebaseapp.com`,
+    firestoreDatabaseId: firebaseConfig.firestoreDatabaseId || '(default)',
+    storageBucket: `${localProject || firebaseConfig.projectId || 'rpscquizapp'}.firebasestorage.app`,
+    messagingSenderId: firebaseConfig.messagingSenderId,
+    measurementId: firebaseConfig.measurementId,
+    databaseURL: localRtdbUrl || (firebaseConfig as any).databaseURL || `https://${localProject || firebaseConfig.projectId || 'rpscquizapp'}-default-rtdb.asia-southeast1.firebasedatabase.app`
+  };
+};
+
+const activeConfig = getActiveFirebaseConfig();
+
+// Initialize Firebase using the active configuration
 let app;
 try {
-  app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
+  app = getApps().length === 0 ? initializeApp(activeConfig) : getApp();
 } catch (e) {
   console.warn("Firebase App initialization failed, using mock placeholder fallback.", e);
-  app = null;
+  try {
+    app = getApp();
+  } catch {
+    app = null;
+  }
 }
 
-export const hasFirebaseVars = !!(firebaseConfig && firebaseConfig.projectId && firebaseConfig.apiKey);
+export const hasFirebaseVars = !!(activeConfig && activeConfig.projectId && activeConfig.apiKey);
 
 // Ensure the db is initialized with our custom enterprise firestore database instance ID
-export const db = app ? getFirestore(app, firebaseConfig.firestoreDatabaseId) : null;
+export const db = app ? getFirestore(app, activeConfig.firestoreDatabaseId) : null;
 export const auth = app ? getAuth(app) : null;
-export const rtdb = app ? getDatabase(app, (firebaseConfig as any).databaseURL || `https://${firebaseConfig.projectId}-default-rtdb.firebaseio.com`) : null;
+export const rtdb = app ? getDatabase(app, activeConfig.databaseURL) : null;
 
 export enum OperationType {
   CREATE = 'create',
@@ -82,6 +108,39 @@ export async function testFirebaseConnection(): Promise<{
       configured: true,
       active: false,
       error: msg
+    };
+  }
+}
+
+/**
+ * Validate connection to Realtime Database by attempting to ping the active db ref
+ */
+export async function testRtdbConnection(): Promise<{
+  configured: boolean;
+  active: boolean;
+  error?: string;
+}> {
+  if (!rtdb) {
+    return {
+      configured: false,
+      active: false,
+      error: "Realtime Database is not initialized"
+    };
+  }
+
+  try {
+    // Attempting to query the connection status node
+    const connectedRef = ref(rtdb, '.info/connected');
+    const snapshot = await get(connectedRef);
+    if (snapshot.exists()) {
+      return { configured: true, active: true };
+    }
+    return { configured: true, active: true };
+  } catch (error: any) {
+    return {
+      configured: true,
+      active: false,
+      error: error?.message || String(error)
     };
   }
 }

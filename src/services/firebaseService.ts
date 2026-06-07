@@ -8,7 +8,7 @@ import {
   query, 
   serverTimestamp 
 } from 'firebase/firestore';
-import { ref, query as dbQuery, orderByChild, equalTo, get } from 'firebase/database';
+import { ref, query as dbQuery, orderByChild, equalTo, get, set } from 'firebase/database';
 import { db, rtdb, handleFirestoreError, OperationType } from './firebase';
 import { Question, QuizConfig } from '../types';
 
@@ -252,6 +252,31 @@ export const firebaseService = {
       });
     } catch (error) {
       console.error("Error fetching quizzes by category from RTDB:", error);
+      throw error;
+    }
+  },
+
+  // 7. Seed sample quizzes to Realtime Database
+  seedSampleQuizzes: async (quizzes: any[]): Promise<void> => {
+    if (!rtdb) {
+      throw new Error("Firebase Realtime Database is not initialized");
+    }
+    try {
+      const dbRef = ref(rtdb, 'quizzes');
+      const formattedQuizzes = quizzes.map((q, idx) => ({
+        id: q.id || `rtdb-q-${idx}-${Date.now()}`,
+        category: q.category,
+        question: q.question,
+        options: q.options,
+        correctAnswer: q.correctAnswer,
+        explanation: q.explanation,
+        teacherInsight: q.teacherInsight,
+        wrongOptionsAnalysis: q.wrongOptionsAnalysis,
+        patternYear: q.patternYear || "RPSC Standard"
+      }));
+      await set(dbRef, formattedQuizzes);
+    } catch (error) {
+      console.error("Error seeding quizzes to RTDB:", error);
       throw error;
     }
   }
