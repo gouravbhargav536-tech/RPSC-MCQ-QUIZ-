@@ -4,30 +4,9 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>RPSC AI-Quizzer</title>
-
-    <!-- ✅ सही तरीका: पैच कोड को सबसे ऊपर अलग स्क्रिप्ट में रखें -->
-    <script>
-      (function() {
-        const originalFetch = window.fetch;
-        try {
-          Object.defineProperty(window, 'fetch', {
-            configurable: true,
-            enumerable: true,
-            get: () => originalFetch,
-            set: () => { 
-              console.warn("किसी स्क्रिप्ट ने window.fetch को बदलने की कोशिश की, जिसे सुरक्षित रूप से इग्नोर कर दिया गया।"); 
-            }
-          });
-        } catch (e) {
-          console.log("Fetch प्रोटेक्शन पहले से सुरक्षित है:", e);
-        }
-      })();
-    </script>
   </head>
   <body>
     <div id="root"></div>
-    
-    <!-- ✅ आपका मुख्य React/Vite कोड अब बिल्कुल साफ और सुरक्षित है -->
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

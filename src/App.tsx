@@ -45,8 +45,6 @@ import IntroScreen from './components/IntroScreen';
 import AuthScreen from './components/AuthScreen';
 import RiverMap from './components/RiverMap';
 import { useFeedback } from './hooks/useFeedback';
-import { useDebugLogger } from './hooks/useDebugLogger';
-import DebugTerminal from './components/DebugTerminal';
 
 export default function App() {
   const [screen, setScreen] = useState<'LANDING' | 'INTRO' | 'AUTH' | 'HOME' | 'SETUP' | 'RULES' | 'QUIZ' | 'RESULTS'>('LANDING');
@@ -84,10 +82,6 @@ export default function App() {
   const [dailyDone, setDailyDone] = useState(false);
   const [isDailyChallenge, setIsDailyChallenge] = useState(false);
   const [isMapOpen, setIsMapOpen] = useState(false);
-  const [generationError, setGenerationError] = useState<string | null>(null);
-  const [isDebugOpen, setIsDebugOpen] = useState(false);
-
-  const logs = useDebugLogger();
 
   const { feedback } = useFeedback();
 
@@ -118,16 +112,6 @@ export default function App() {
       localStorage.removeItem('rpsc_current_quiz');
     }
   }, [user]);
-
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.altKey && e.key === 't') {
-        setIsDebugOpen(prev => !prev);
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
 
   // Save quiz progress
   useEffect(() => {
@@ -298,7 +282,6 @@ export default function App() {
     feedback('click');
     setLoading(true);
     setScreen('QUIZ');
-    setGenerationError(null);
     try {
       const generatedQuestions = await generateQuizQuestions(config);
       setQuestions(generatedQuestions);
@@ -306,9 +289,8 @@ export default function App() {
       setCurrentIndex(0);
       setQuizTimer(0);
       setIsAnswered(false);
-    } catch (error: any) {
-      console.error("AI Generation Error:", error);
-      setGenerationError(error?.message || "An unexpected error occurred during quiz generation.");
+    } catch (error) {
+      alert("Error generating quiz. Please try again.");
       setScreen('SETUP');
     } finally {
       setLoading(false);
@@ -400,7 +382,6 @@ export default function App() {
   return (
     <div className={`h-screen bg-page flex flex-col font-sans text-main overflow-hidden theme-${theme} relative`} data-theme={theme}>
       {/* Background Accents (Geometric Balance Mode) */}
-      {isDebugOpen && <DebugTerminal logs={logs} onClose={() => setIsDebugOpen(false)} />}
       {theme === 'geometric' && (
         <div className="fixed inset-0 pointer-events-none overflow-hidden">
           <div className="absolute top-[-100px] left-[-100px] w-[400px] h-[400px] bg-indigo-500/10 rounded-full blur-[100px]"></div>
@@ -468,7 +449,7 @@ export default function App() {
             className="flex flex-col h-full overflow-hidden"
           >
             {/* Header Navigation */}
-            <header className={`h-16 md:h-20 flex items-center justify-between px-4 md:px-8 shrink-0 relative z-20 transition-all duration-700 ${
+            <header className={`min-h-[3.5rem] md:h-20 py-2 md:py-0 flex flex-wrap gap-2 justify-between items-center px-2 md:px-8 shrink-0 relative z-20 transition-all duration-700 ${
               theme === 'rajasthan' 
                 ? 'bg-gradient-to-r from-rose-800 via-red-700 to-orange-600 text-white border-b-4 border-amber-600 shadow-lg' 
                 : 'bg-white/80 backdrop-blur-md border-b border-white/10'
@@ -487,7 +468,7 @@ export default function App() {
                   </div>
                 </div>
                 
-                <div className="flex items-center gap-2 md:gap-4">
+                <div className="flex flex-wrap items-center gap-1.5 md:gap-4">
                   {(screen === 'QUIZ' || screen === 'RESULTS') && (
                     <div className="flex flex-col items-end mr-1 md:mr-4">
                       <span className="hidden lg:block text-[9px] uppercase font-bold text-slate-400 tracking-widest whitespace-nowrap">Session Timer</span>
@@ -495,7 +476,7 @@ export default function App() {
                     </div>
                   )}
                   
-                  <div className="flex items-center gap-1 md:gap-2">
+                  <div className="flex flex-wrap items-center gap-1 md:gap-2">
                     <div className="hidden sm:flex items-center gap-1 px-2 md:px-3 py-1 bg-orange-500/10 border border-orange-500/10 rounded-full">
                       <span className="text-orange-500 animate-pulse text-[10px]">🔥</span>
                       <span className="text-[10px] md:text-xs font-bold text-orange-500">{streak}</span>
@@ -504,13 +485,13 @@ export default function App() {
                     <button 
                       onClick={toggleTheme}
                       title="Switch Theme"
-                      className={`flex items-center gap-2 px-3 py-2 md:px-5 md:py-2.5 rounded-full transition-all duration-700 shadow-lg border group relative overflow-hidden active:scale-95 ${
+                      className={`flex items-center gap-1.5 px-2 md:px-5 py-1.5 md:py-2.5 rounded-full transition-all duration-700 shadow-lg border group relative overflow-hidden active:scale-95 ${
                         theme === 'rajasthan' 
                           ? 'bg-rose-900/40 border-amber-500/50 text-amber-100 hover:bg-rose-900/60' 
                           : 'bg-white border-indigo-100 text-indigo-600 hover:border-indigo-300 hover:bg-indigo-50'
                       }`}
                     >
-                      <Palette size={18} className={`transition-all duration-500 group-hover:rotate-[30deg] ${theme === 'rajasthan' ? 'text-amber-400' : 'text-indigo-500'}`} />
+                      <Palette size={14} className={`transition-all duration-500 group-hover:rotate-[30deg] ${theme === 'rajasthan' ? 'text-amber-400' : 'text-indigo-500'}`} />
                       <span className={`text-[10px] md:text-sm font-bold transition-all duration-700 whitespace-nowrap ${
                         theme === 'rajasthan' 
                           ? 'font-serif italic text-amber-200 tracking-[0.15em] drop-shadow-sm' 
@@ -536,7 +517,7 @@ export default function App() {
                   <div className="hidden xs:block h-6 md:h-8 w-px bg-slate-200 mx-1 md:mx-2"></div>
 
                   {user && (
-                    <div className="flex items-center gap-2 md:gap-4">
+                    <div className="flex items-center gap-1.5 md:gap-4">
                       <div className="flex flex-col items-end hidden lg:flex">
                         <span className={`text-[10px] font-bold uppercase tracking-widest leading-none mb-1 ${theme === 'rajasthan' ? 'text-orange-200 opacity-80' : 'text-slate-400'}`}>Authenticated</span>
                         <span className={`text-xs font-bold ${theme === 'rajasthan' ? 'text-white' : 'text-main'}`}>{user.name}</span>
@@ -544,7 +525,7 @@ export default function App() {
                       <button 
                         onClick={handleLogout}
                         title="Logout"
-                        className={`p-1.5 md:p-2 transition-colors ${theme === 'rajasthan' ? 'text-white/70 hover:text-white' : 'text-slate-400 hover:text-red-500'}`}
+                        className={`p-1 md:p-2 transition-colors ${theme === 'rajasthan' ? 'text-white/70 hover:text-white' : 'text-slate-400 hover:text-red-500'}`}
                       >
                         <LogOut size={16} />
                       </button>
@@ -554,7 +535,7 @@ export default function App() {
                   {screen === 'QUIZ' && (
                     <button 
                       onClick={() => setScreen('RESULTS')}
-                      className="px-3 md:px-6 py-1.5 md:py-2 bg-slate-900 text-white text-xs md:text-sm font-semibold rounded hover:bg-slate-800 transition-colors shadow-sm ml-1 md:ml-4"
+                      className="px-2 md:px-6 py-1 md:py-2 bg-slate-900 text-white text-[10px] md:text-sm font-semibold rounded hover:bg-slate-800 transition-colors shadow-sm ml-1 md:ml-4"
                     >
                       Submit
                     </button>
@@ -562,7 +543,7 @@ export default function App() {
                   {screen === 'RESULTS' && (
                     <button 
                       onClick={() => setScreen('HOME')}
-                      className="px-3 md:px-6 py-1.5 md:py-2 bg-primary text-white text-xs md:text-sm font-semibold rounded hover:brightness-110 transition-all shadow-sm ml-1 md:ml-4"
+                      className="px-2 md:px-6 py-1 md:py-2 bg-primary text-white text-[10px] md:text-sm font-semibold rounded hover:brightness-110 transition-all shadow-sm ml-1 md:ml-4"
                     >
                       Exit
                     </button>
@@ -799,18 +780,6 @@ export default function App() {
                       >
                         <ChevronLeft size={16} /> Back to Library
                       </button>
-
-                      {generationError && (
-                        <div className="mb-6 p-5 bg-red-50 border border-red-200 text-red-800 rounded-xl text-xs md:text-sm shadow-sm flex flex-col gap-1.5 animate-fadeIn">
-                          <div className="font-bold uppercase tracking-wide text-[10px] text-red-600 flex items-center gap-1.5">
-                            <XCircle size={14} /> Exam Paper Blueprint Failure
-                          </div>
-                          <p className="leading-relaxed font-semibold">{generationError}</p>
-                          <p className="text-[10px] text-red-500 mt-1">
-                            Please verify your <strong>GEMINI_API_KEY</strong> configuration in Settings &gt; Secrets in the application dashboard.
-                          </p>
-                        </div>
-                      )}
                       
                       <div className={`p-6 md:p-10 ${
                         theme === 'rajasthan' ? 'bg-white rounded-[2rem] border-2 border-amber-500 shadow-2xl' : 'bg-white border border-slate-200'
@@ -1012,13 +981,13 @@ export default function App() {
                                 </motion.span>
                               )}
                             </AnimatePresence>
-                            <h2 className="text-xl md:text-3xl font-display mt-4 md:mt-6 leading-snug md:leading-tight text-main italic">
+                            <h2 className="text-lg md:text-xl font-semibold px-4 font-display mt-4 md:mt-6 leading-snug md:leading-tight text-main italic">
                                {questions[currentIndex]?.question}
                             </h2>
                           </div>
 
                 {/* Options Grid */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
+                <div className="grid grid-cols-1 gap-3 md:gap-4">
                   {questions[currentIndex] && Object.entries(questions[currentIndex].options).map(([key, value]) => {
                     const isCorrect = key === questions[currentIndex].correctAnswer;
                     const isSelected = key === userAnswers[currentIndex];
@@ -1044,30 +1013,30 @@ export default function App() {
                         whileHover={!isAnswered ? { y: -4, scale: 1.01 } : {}}
                         whileTap={!isAnswered ? { scale: 0.98 } : {}}
                         onClick={() => handleSelectAnswer(key)}
-                        className={`flex items-center gap-5 p-5 md:p-6 border transition-all text-left group relative min-h-[80px] ${
-                          theme === 'rajasthan' ? 'rounded-3xl' : 'rounded-2xl'
+                        className={`flex items-center gap-3 md:gap-4 p-3 md:p-4 border transition-all text-left group relative min-h-[60px] ${
+                          theme === 'rajasthan' ? 'rounded-2xl' : 'rounded-xl'
                         } ${btnClass}`}
                       >
-                        <span className={`w-10 h-10 md:w-12 md:h-12 shrink-0 rounded-xl border-2 flex items-center justify-center font-bold text-lg transition-all ${circleClass}`}>
+                        <span className={`w-8 h-8 md:w-10 md:h-10 shrink-0 rounded-xl border-2 flex items-center justify-center font-bold text-sm md:text-base transition-all ${circleClass}`}>
                           {key}
                         </span>
-                        <span className={`text-base md:text-lg flex-1 leading-tight ${isSelected && !isAnswered ? 'font-bold' : 'font-medium'}`}>{value}</span>
+                        <span className={`text-sm md:text-base flex-1 leading-tight ${isSelected && !isAnswered ? 'font-bold' : 'font-medium'}`}>{value}</span>
                         {isAnswered && isCorrect && (
                           <motion.div 
                             initial={{ scale: 0 }}
                             animate={{ scale: 1 }}
-                            className="absolute right-5"
+                            className="absolute right-3"
                           >
-                            <CheckCircle2 className="text-primary" size={24} />
+                            <CheckCircle2 className="text-primary" size={20} />
                           </motion.div>
                         )}
                         {isAnswered && isSelected && !isCorrect && (
                           <motion.div 
                             initial={{ scale: 0 }}
                             animate={{ scale: 1 }}
-                            className="absolute right-5"
+                            className="absolute right-3"
                           >
-                            <XCircle className="text-red-500" size={24} />
+                            <XCircle className="text-red-500" size={20} />
                           </motion.div>
                         )}
                       </motion.button>
