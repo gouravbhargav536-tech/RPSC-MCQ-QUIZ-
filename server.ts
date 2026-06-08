@@ -170,6 +170,25 @@ async function startServer() {
     }
   });
 
+  app.get("/api/check-key", async (req, res) => {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      return res.json({ status: "invalid", message: "API Key missing in environment" });
+    }
+    
+    // Quick test
+    try {
+      const ai = new GoogleGenAI({ apiKey });
+      await ai.models.generateContent({
+        model: "gemini-3.1-flash-lite",
+        contents: "hi"
+      });
+      return res.json({ status: "ok", message: "API key is working perfectly." });
+    } catch (err: any) {
+      return res.json({ status: "error", message: `API Key check failed: ${err.message || 'Unknown error'}`.substring(0, 50) });
+    }
+  });
+
   // Serve static assets in production, mount Vite in development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
