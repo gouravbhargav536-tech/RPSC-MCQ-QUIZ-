@@ -73,22 +73,21 @@ async function startServer() {
   });
 
   app.get("/api/check-key", async (req, res) => {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      return res.json({ status: "invalid", message: "API Key missing in environment" });
+    // 1. First check environment key (legacy)
+    const envKey = process.env.GEMINI_API_KEY;
+    if (envKey) {
+        return res.json(await checkApiKey(envKey));
+    }
+
+    // 2. Otherwise check keys in Firestore
+    const snapshot = await db.collection("apiKeys").get();
+    if (snapshot.empty) {
+      return res.json({ status: "invalid", message: "No API Keys found in Environment or Database" });
     }
     
-    // Quick test
-    try {
-      const ai = new GoogleGenAI({ apiKey });
-      await ai.models.generateContent({
-        model: "gemini-3.1-flash-lite",
-        contents: "hi"
-      });
-      return res.json({ status: "ok", message: "API key is working perfectly." });
-    } catch (err: any) {
-      return res.json({ status: "error", message: `API Key check failed: ${err.message || 'Unknown error'}`.substring(0, 50) });
-    }
+    // For now, check first key found
+    const keyData = snapshot.docs[0].data();
+    return res.json(await checkApiKey(keyData.value));
   });
 
   // Serve static assets in production, mount Vite in development
