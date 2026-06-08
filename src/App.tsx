@@ -38,6 +38,7 @@ import {
   Menu,
   X
 } from 'lucide-react';
+import { getQuizQuestionsWithAllocation } from './services/firebaseService';
 import { generateQuizQuestions } from './services/geminiService';
 import { Question, QuizConfig, Subject, Difficulty, Language, ThemeType, User, ExamPattern } from './types';
 import { mockAuth } from './services/authService';
@@ -283,14 +284,15 @@ export default function App() {
     setLoading(true);
     setScreen('QUIZ');
     try {
-      const generatedQuestions = await generateQuizQuestions(config);
+      const generatedQuestions = await getQuizQuestionsWithAllocation(user, config);
       setQuestions(generatedQuestions);
       setUserAnswers(new Array(generatedQuestions.length).fill(null));
       setCurrentIndex(0);
       setQuizTimer(0);
       setIsAnswered(false);
     } catch (error) {
-      alert("Error generating quiz. Please try again.");
+      console.error(error);
+      alert("Error generating or fetching quiz. Returning to Setup screen.");
       setScreen('SETUP');
     } finally {
       setLoading(false);
