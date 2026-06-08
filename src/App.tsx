@@ -45,6 +45,8 @@ import IntroScreen from './components/IntroScreen';
 import AuthScreen from './components/AuthScreen';
 import RiverMap from './components/RiverMap';
 import { useFeedback } from './hooks/useFeedback';
+import { useDebugLogger } from './hooks/useDebugLogger';
+import DebugTerminal from './components/DebugTerminal';
 
 export default function App() {
   const [screen, setScreen] = useState<'LANDING' | 'INTRO' | 'AUTH' | 'HOME' | 'SETUP' | 'RULES' | 'QUIZ' | 'RESULTS'>('LANDING');
@@ -83,6 +85,9 @@ export default function App() {
   const [isDailyChallenge, setIsDailyChallenge] = useState(false);
   const [isMapOpen, setIsMapOpen] = useState(false);
   const [generationError, setGenerationError] = useState<string | null>(null);
+  const [isDebugOpen, setIsDebugOpen] = useState(false);
+
+  const logs = useDebugLogger();
 
   const { feedback } = useFeedback();
 
@@ -113,6 +118,16 @@ export default function App() {
       localStorage.removeItem('rpsc_current_quiz');
     }
   }, [user]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.altKey && e.key === 't') {
+        setIsDebugOpen(prev => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   // Save quiz progress
   useEffect(() => {
@@ -385,6 +400,7 @@ export default function App() {
   return (
     <div className={`h-screen bg-page flex flex-col font-sans text-main overflow-hidden theme-${theme} relative`} data-theme={theme}>
       {/* Background Accents (Geometric Balance Mode) */}
+      {isDebugOpen && <DebugTerminal logs={logs} onClose={() => setIsDebugOpen(false)} />}
       {theme === 'geometric' && (
         <div className="fixed inset-0 pointer-events-none overflow-hidden">
           <div className="absolute top-[-100px] left-[-100px] w-[400px] h-[400px] bg-indigo-500/10 rounded-full blur-[100px]"></div>
