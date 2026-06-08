@@ -4,6 +4,23 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>RPSC AI-Quizzer</title>
+    <script>
+      // 🛡️ Safe self-healing wrapper to prevent "Cannot set property fetch of #<Window> which has only a getter"
+      try {
+        if (window && !Object.getOwnPropertyDescriptor(window, 'fetch')?.writable) {
+          var originalFetch = window.fetch;
+          var customFetch = originalFetch;
+          Object.defineProperty(window, 'fetch', {
+            get: function() { return customFetch; },
+            set: function(val) { customFetch = val; },
+            configurable: true,
+            enumerable: true
+          });
+        }
+      } catch (e) {
+        console.warn("[Self-Heal] Unable to redefine window.fetch. Active guard established to prevent crashing.", e);
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>
