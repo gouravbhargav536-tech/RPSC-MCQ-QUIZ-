@@ -34,38 +34,63 @@ async function startServer() {
   const PORT = 3000;
 
   app.use(express.json());
+  console.log("Registered JSON middleware");
 
   // API Route FIRST
   app.post("/api/generate-quiz", async (req, res) => {
+    console.log("Received request to /api/generate-quiz");
     try {
-      const config = req.body;
-      const { subject, difficulty, language, questionCount, topic, pattern } = config;
+      const { subject, difficulty, language, questionCount, topic, pattern } = req.body;
+      console.log("Quiz config:", { subject, difficulty });
 
-      // Find an active key
-      const activeKeysSnapshot = await db.collection("apiKeys")
-        .where("status", "==", "active")
-        .where("lastChecked", ">", new Date(Date.now() - 10 * 60 * 1000))
-        .get();
+      // Get keys
+      const keysSnapshot = await db.collection("apiKeys").where("status", "==", "active").get();
+      const keys = keysSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
       
-      let apiKey = activeKeysSnapshot.docs.length > 0 ? activeKeysSnapshot.docs[0].data().value : null;
-
-      if (!apiKey) {
-         // Optionally try to find any key not recently checked? 
-         // For now, simplify and ask for a key.
-         return res.status(400).json({ error: "No active working API key. Please check Admin view." });
+      if (keys.length === 0) {
+         console.error("No active keys available");
+         return res.status(500).json({ error: "No active API keys available." });
       }
 
-      // Initialize AI
-      const ai = new GoogleGenAI({ apiKey });
-      
-      // Generation logic... 
-      // (Simplified for brevity, I will re-implement the generation part using the found apiKey)
-      
-      // If generation fails with a specific error, mark key as failed in Firestore and retry
-      
-      // ... Generation logic as before but with key management ...
-      
-      return res.json({ status: "success" }); // Need to fill in actual generation
+      const patternScope = pattern === '2012-2020' 
+        ? 'Old Pattern (2012–2020): Direct factual questions.' 
+        : 'New Pattern (2021–Present): Statement-based, analytical.';
+
+      const prompt = `Generate ${questionCount} multiple choice questions about ${subject}. ${topic ? 'Focus topic: ' + topic : ''}. Difficulty: ${difficulty}. Language: ${language}. Exam Pattern: ${patternScope}. Output as JSON.`;
+
+      for (const key of keys) {
+          try {
+              console.log("Attempting generation with key:", key.id);
+              const ai = new GoogleGenAI({ apiKey: key.value });
+              
+              const response = await ai.models.generateContent({
+                model: "gemini-3.1-flash-lite",
+                contents: prompt,
+                config: { responseMimeType: "application/json" }
+              });
+
+              const textOutput = response.text;
+              if (textOutput) {
+                  return res.json(JSON.parse(textOutput));
+              }
+          } catch (error: any) {
+              console.warn(`Key ${key.id} failed: ${error.message}`);
+              // Mark as failed
+              await db.collection("apiKeys").doc(key.id).update({ 
+                  status: 'failed', 
+                  failureReason: error.message.substring(0, 50), 
+                  lastChecked: new Date() 
+              });
+              await db.collection("apiFailures").add({
+                  userId: 'system',
+                  time: new Date(),
+                  keyId: key.id,
+                  errorReason: error.message
+              });
+              continue; // try next key
+          }
+      }
+      return res.status(503).json({ error: "All API keys failed" });
     } catch (err: any) {
       console.error("Quiz creation error:", err);
       return res.status(500).json({ error: err?.message || "Internal Server Error" });
