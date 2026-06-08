@@ -1,0 +1,39 @@
+{
+  "entities": {
+    "ApiKey": {
+      "title": "API Key",
+      "description": "Configuration and status of a Gemini API key.",
+      "type": "object",
+      "properties": {
+        "value": { "type": "string", "description": "The actual API key string." },
+        "status": { "type": "string", "enum": ["active", "failed", "checking"] },
+        "lastChecked": { "type": "string", "format": "date-time" },
+        "failureReason": { "type": "string" },
+        "responseTime": { "type": "number" }
+      },
+      "required": ["value", "status", "lastChecked"]
+    },
+    "ApiFailure": {
+      "title": "API Failure Log",
+      "description": "Log of API usage failures.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "time": { "type": "string", "format": "date-time" },
+        "keyId": { "type": "string" },
+        "errorReason": { "type": "string" }
+      },
+      "required": ["userId", "time", "keyId", "errorReason"]
+    }
+  },
+  "firestore": {
+    "/apiKeys/{keyId}": {
+      "schema": { "$ref": "ApiKey" },
+      "description": "Storage for Gemini API keys and their validation status."
+    },
+    "/apiFailures/{failureId}": {
+      "schema": { "$ref": "ApiFailure" },
+      "description": "Logs for tracking API failures."
+    }
+  }
+}
