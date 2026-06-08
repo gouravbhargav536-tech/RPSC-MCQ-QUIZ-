@@ -38,7 +38,6 @@ import {
   Menu,
   X
 } from 'lucide-react';
-import { getQuizQuestionsWithAllocation } from './services/firebaseService';
 import { generateQuizQuestions } from './services/geminiService';
 import { Question, QuizConfig, Subject, Difficulty, Language, ThemeType, User, ExamPattern } from './types';
 import { mockAuth } from './services/authService';
@@ -83,6 +82,7 @@ export default function App() {
   const [dailyDone, setDailyDone] = useState(false);
   const [isDailyChallenge, setIsDailyChallenge] = useState(false);
   const [isMapOpen, setIsMapOpen] = useState(false);
+  const [generationError, setGenerationError] = useState<string | null>(null);
 
   const { feedback } = useFeedback();
 
@@ -283,16 +283,17 @@ export default function App() {
     feedback('click');
     setLoading(true);
     setScreen('QUIZ');
+    setGenerationError(null);
     try {
-      const generatedQuestions = await getQuizQuestionsWithAllocation(user, config);
+      const generatedQuestions = await generateQuizQuestions(config);
       setQuestions(generatedQuestions);
       setUserAnswers(new Array(generatedQuestions.length).fill(null));
       setCurrentIndex(0);
       setQuizTimer(0);
       setIsAnswered(false);
-    } catch (error) {
-      console.error(error);
-      alert("Error generating or fetching quiz. Returning to Setup screen.");
+    } catch (error: any) {
+      console.error("AI Generation Error:", error);
+      setGenerationError(error?.message || "An unexpected error occurred during quiz generation.");
       setScreen('SETUP');
     } finally {
       setLoading(false);
@@ -782,6 +783,18 @@ export default function App() {
                       >
                         <ChevronLeft size={16} /> Back to Library
                       </button>
+
+                      {generationError && (
+                        <div className="mb-6 p-5 bg-red-50 border border-red-200 text-red-800 rounded-xl text-xs md:text-sm shadow-sm flex flex-col gap-1.5 animate-fadeIn">
+                          <div className="font-bold uppercase tracking-wide text-[10px] text-red-600 flex items-center gap-1.5">
+                            <XCircle size={14} /> Exam Paper Blueprint Failure
+                          </div>
+                          <p className="leading-relaxed font-semibold">{generationError}</p>
+                          <p className="text-[10px] text-red-500 mt-1">
+                            Please verify your <strong>GEMINI_API_KEY</strong> configuration in Settings &gt; Secrets in the application dashboard.
+                          </p>
+                        </div>
+                      )}
                       
                       <div className={`p-6 md:p-10 ${
                         theme === 'rajasthan' ? 'bg-white rounded-[2rem] border-2 border-amber-500 shadow-2xl' : 'bg-white border border-slate-200'
@@ -983,7 +996,7 @@ export default function App() {
                                 </motion.span>
                               )}
                             </AnimatePresence>
-                            <h2 className="text-base md:text-lg font-semibold tracking-tight mt-3 md:mt-4 leading-relaxed text-slate-800">
+                            <h2 className="text-xl md:text-3xl font-display mt-4 md:mt-6 leading-snug md:leading-tight text-main italic">
                                {questions[currentIndex]?.question}
                             </h2>
                           </div>
